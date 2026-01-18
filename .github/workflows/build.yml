@@ -1,0 +1,105 @@
+# Build ICU 75.1 wheels for pip
+name: Build
+
+on:
+  workflow_dispatch:
+  release:
+    types: [published]
+  push:
+    tags: ['v*']
+
+env:
+  ICU_VERSION: "75"
+
+jobs:
+  build:
+    name: ${{ matrix.os }} py${{ matrix.python }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {runner: macos-14, os: macos-arm64, python: '3.9'}
+          - {runner: macos-14, os: macos-arm64, python: '3.10'}
+          - {runner: macos-14, os: macos-arm64, python: '3.11'}
+          - {runner: macos-14, os: macos-arm64, python: '3.12'}
+          - {runner: macos-13, os: macos-x64, python: '3.9'}
+          - {runner: macos-13, os: macos-x64, python: '3.10'}
+          - {runner: macos-13, os: macos-x64, python: '3.11'}
+          - {runner: macos-13, os: macos-x64, python: '3.12'}
+          - {runner: ubuntu-latest, os: linux, python: '3.9'}
+          - {runner: ubuntu-latest, os: linux, python: '3.10'}
+          - {runner: ubuntu-latest, os: linux, python: '3.11'}
+          - {runner: ubuntu-latest, os: linux, python: '3.12'}
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+
+      - name: Install tools
+        run: pip install wheel build
+
+      - name: Setup (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          brew install icu4c@${{ env.ICU_VERSION }} pkg-config
+          pip install delocate
+          echo "PKG_CONFIG_PATH=$(brew --prefix icu4c@${{ env.ICU_VERSION }})/lib/pkgconfig" >> $GITHUB_ENV
+
+      - name: Setup (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libicu-dev patchelf
+          pip install auditwheel
+
+      - name: Build PyICU
+        run: |
+          pip download PyICU --no-deps --no-binary :all: -d /tmp/src
+          cd /tmp/src && tar xzf *.tar.gz && cd pyicu-*
+          pip wheel . --no-deps -w /tmp/raw
+
+      - name: Bundle ICU (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          delocate-wheel -v -w /tmp/bundled /tmp/raw/*.whl
+          mkdir /tmp/pkg && cd /tmp/pkg && unzip /tmp/bundled/*.whl
+
+      - name: Bundle ICU (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          auditwheel repair --plat manylinux_2_28_x86_64 -w /tmp/bundled /tmp/raw/*.whl
+          mkdir /tmp/pkg && cd /tmp/pkg && unzip /tmp/bundled/*.whl
+
+      - name: Build wheel
+        run: |
+          cp -R /tmp/pkg/icu .
+          [ -d /tmp/pkg/pyicu.libs ] && cp -R /tmp/pkg/pyicu.libs . || true
+          python -m build --wheel
+
+      - name: Test
+        run: |
+          pip install dist/*.whl
+          python -c "import icu; print(f'ICU {icu.ICU_VERSION}')"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wheel-${{ matrix.os }}-py${{ matrix.python }}
+          path: dist/*.whl
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    if: github.event_name == 'release'
+    environment: pypi
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: wheel-*
+          merge-multiple: true
+          path: dist
+      - uses: pypa/gh-action-pypi-publish@release/v1

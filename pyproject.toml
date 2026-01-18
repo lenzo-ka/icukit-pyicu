@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "icukit-icu"
+version = "75.1.0"
+description = "ICU 75.1 - International Components for Unicode, packaged for pip"
+readme = "README.md"
+license = {text = "ICU License"}
+authors = [{name = "Kevin A. Lenzo", email = "lenzo@duolingo.com"}]
+requires-python = ">=3.9"
+keywords = ["icu", "unicode", "i18n", "internationalization"]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved",
+    "Operating System :: MacOS",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Topic :: Software Development :: Internationalization",
+]
+
+[project.urls]
+Homepage = "https://icu.unicode.org/"
+Source = "https://github.com/unicode-org/icu"
+
+[tool.setuptools]
+include-package-data = true

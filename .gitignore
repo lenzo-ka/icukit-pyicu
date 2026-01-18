@@ -1,0 +1,17 @@
+# Build
+dist/
+build/
+*.egg-info/
+*.whl
+
+# ICU files (copied during build)
+/icu/
+/pyicu.libs/
+*.dylib
+*.so
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
