@@ -1,6 +1,10 @@
-# Build ICU 75.1 + PyICU 2.16 wheels
+# Build ICU 75.1 + PyICU 2.16 wheels for icukit-pyicu
 
 name: Build
+
+env:
+  ICU_VERSION: "75.1"
+  PYICU_VERSION: "2.16"
 
 on:
   workflow_dispatch:
@@ -37,46 +41,89 @@ jobs:
           python-version: ${{ matrix.python }}
 
       - name: Install tools
-        run: pip install wheel build
-
-      - name: Setup (macOS)
-        if: runner.os == 'macOS'
         run: |
-          brew install icu4c@75 pkg-config
-          pip install delocate
-          echo "PKG_CONFIG_PATH=$(brew --prefix icu4c@75)/lib/pkgconfig" >> $GITHUB_ENV
+          if [ "${{ runner.os }}" = "Linux" ]; then
+            sudo apt-get update
+            sudo apt-get install -y patchelf pkg-config build-essential
+          fi
+          pip install wheel build delocate auditwheel
 
-      - name: Setup (Linux)
-        if: runner.os == 'Linux'
+      - name: Build ICU from source
         run: |
-          sudo apt-get update
-          sudo apt-get install -y libicu-dev patchelf
-          pip install auditwheel
+          # Transform 75.1 -> 75_1 and 75-1
+          V_UNDERSCORE=$(echo ${{ env.ICU_VERSION }} | tr . _)
+          V_DASH=$(echo ${{ env.ICU_VERSION }} | tr . -)
+          
+          URL="https://github.com/unicode-org/icu/releases/download/release-${V_DASH}/icu4c-${V_UNDERSCORE}-src.tgz"
+          echo "Downloading ICU from $URL"
+          curl -L "$URL" -o icu.tgz
+          tar xzf icu.tgz
+          
+          cd icu/source
+          
+          # Use headerpad_max_install_names so delocate can rewrite IDs on macOS
+          export LDFLAGS="-Wl,-headerpad_max_install_names"
+          
+          # Enable static and shared, but disable samples/tests to save time
+          if [ "${{ runner.os }}" = "macOS" ]; then
+            ./runConfigureICU MacOSX --prefix=/tmp/icu-dist --enable-static --enable-shared --disable-samples --disable-tests
+          else
+            ./configure --prefix=/tmp/icu-dist --enable-static --enable-shared --disable-samples --disable-tests
+          fi
+          
+          make -j$(nproc 2>/dev/null || sysctl -n hw.ncpu)
+          make install
+          
+          echo "PKG_CONFIG_PATH=/tmp/icu-dist/lib/pkgconfig" >> $GITHUB_ENV
+          echo "ICU_DIST=/tmp/icu-dist" >> $GITHUB_ENV
+          echo "/tmp/icu-dist/bin" >> $GITHUB_PATH
+          echo "/tmp/icu-dist/sbin" >> $GITHUB_PATH
 
       - name: Build PyICU
         env:
           CXXFLAGS: -std=c++17
+          LDFLAGS: -L/tmp/icu-dist/lib -licui18n -licuuc -licudata -Wl,-headerpad_max_install_names
+          CPPFLAGS: -I/tmp/icu-dist/include
         run: |
-          pip download PyICU --no-deps --no-binary :all: -d /tmp/src
+          pip download "PyICU==${{ env.PYICU_VERSION }}" --no-deps --no-binary :all: -d /tmp/src
           cd /tmp/src && tar xzf *.tar.gz && cd pyicu-*
+          
+          # Force PyICU to use our specific ICU
+          export ICU_VERSION="${{ env.ICU_VERSION }}"
+          export PYICU_INCLUDES="/tmp/icu-dist/include"
+          export PYICU_LFLAGS="-L/tmp/icu-dist/lib -licui18n -licuuc -licudata"
+          
           pip wheel . --no-deps -w /tmp/raw
 
       - name: Bundle (macOS)
         if: runner.os == 'macOS'
         run: |
+          export DYLD_LIBRARY_PATH="/tmp/icu-dist/lib"
           delocate-wheel -v -w /tmp/bundled /tmp/raw/*.whl
           mkdir /tmp/pkg && cd /tmp/pkg && unzip /tmp/bundled/*.whl
 
       - name: Bundle (Linux)
         if: runner.os == 'Linux'
         run: |
+          # Use manylinux_2_28 or higher to ensure compatibility with our built ICU
           auditwheel repair --plat manylinux_2_28_x86_64 -w /tmp/bundled /tmp/raw/*.whl
           mkdir /tmp/pkg && cd /tmp/pkg && unzip /tmp/bundled/*.whl
 
       - name: Build wheel
         run: |
+          # 1. Copy PyICU runtime
           cp -R /tmp/pkg/icu .
           [ -d /tmp/pkg/pyicu.libs ] && cp -R /tmp/pkg/pyicu.libs . || true
+
+          # 2. Bundle ICU dev files from our /tmp/icu-dist
+          mkdir -p icukit_pyicu/include icukit_pyicu/lib icukit_pyicu/bin
+          cp -R /tmp/icu-dist/include/ icukit_pyicu/include/
+          cp -R /tmp/icu-dist/lib/ icukit_pyicu/lib/
+          cp -R /tmp/icu-dist/bin/ icukit_pyicu/bin/
+
+          # 3. Set version dynamically
+          sed -i.bak "s/^version = .*/version = \"${{ env.ICU_VERSION }}.0\"/" pyproject.toml
+
           python -m build --wheel
 
       - name: Test

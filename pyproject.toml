@@ -3,17 +3,18 @@ requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "icukit-icu"
+name = "icukit-pyicu"
 version = "75.1.0"
-description = "ICU 75.1 + PyICU 2.16 for pip"
+description = "Bundled ICU and PyICU for pip"
 readme = "README.md"
-license = {text = "ICU License"}
+license = {file = "LICENSE"}
 authors = [{name = "Kevin A. Lenzo", email = "lenzo@duolingo.com"}]
 requires-python = ">=3.9"
 keywords = ["icu", "unicode", "i18n", "pyicu"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
     "Operating System :: MacOS",
     "Operating System :: POSIX :: Linux",
     "Programming Language :: Python :: 3",
@@ -22,5 +23,16 @@ classifiers = [
 [project.urls]
 Homepage = "https://icu.unicode.org/"
 
+[project.scripts]
+icukit-config = "icukit_pyicu.__main__:main"
+
 [tool.setuptools]
 include-package-data = true
+packages = ["icu", "icukit_pyicu"]
+
+[tool.setuptools.package-dir]
+"icu" = "icu"
+"icukit_pyicu" = "icukit_pyicu"
+
+[tool.setuptools.package-data]
+icukit_pyicu = ["include/**/*", "lib/**/*", "bin/**/*"]

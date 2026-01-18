@@ -1,17 +1,34 @@
-# Build
+# Build and Dist
 dist/
 build/
 *.egg-info/
 *.whl
+/icu-dist/
+/icu_source/
+/icu.tgz
 
-# ICU files (copied during build)
+# ICU files (copied/extracted during build)
 /icu/
 /pyicu.libs/
+/icukit_pyicu/include/
+/icukit_pyicu/lib/
+/icukit_pyicu/bin/
 *.dylib
 *.so
+*.so.*
+*.a
 
 # Python
 __pycache__/
 *.py[cod]
+*$py.class
 .venv/
 venv/
+ENV/
+
+# OS and Editors
+.DS_Store
+.vscode/
+.idea/
+*.bak
+*.swp
