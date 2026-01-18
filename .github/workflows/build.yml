@@ -1,7 +1,7 @@
 # Build ICU wheels for pip
 #
-# Packages a specific ICU release for pip installation.
-# Version is read from VERSION file.
+# Packages ICU + PyICU for pip installation.
+# ICU 75+ requires C++17 for PyICU.
 
 name: Build
 
@@ -9,7 +9,7 @@ on:
   workflow_dispatch:
     inputs:
       icu_version:
-        description: 'ICU version (e.g., 75, 74)'
+        description: 'ICU major version (e.g., 75)'
         required: false
         default: ''
   release:
@@ -47,14 +47,19 @@ jobs:
       - name: Get ICU version
         id: version
         run: |
-          # Use input or derive from VERSION file
           if [ -n "${{ inputs.icu_version }}" ]; then
             ICU_VERSION="${{ inputs.icu_version }}"
           else
             ICU_VERSION=$(cat VERSION | cut -d. -f1)
           fi
           echo "icu=$ICU_VERSION" >> $GITHUB_OUTPUT
-          echo "Building ICU $ICU_VERSION"
+          
+          # ICU 75+ requires C++17 for PyICU
+          if [ "$ICU_VERSION" -ge 75 ]; then
+            echo "cxxflags=-std=c++17" >> $GITHUB_OUTPUT
+          else
+            echo "cxxflags=-std=c++11" >> $GITHUB_OUTPUT
+          fi
 
       - name: Install tools
         run: pip install wheel build
@@ -74,6 +79,8 @@ jobs:
           pip install auditwheel
 
       - name: Build PyICU
+        env:
+          CXXFLAGS: ${{ steps.version.outputs.cxxflags }}
         run: |
           pip download PyICU --no-deps --no-binary :all: -d /tmp/src
           cd /tmp/src && tar xzf *.tar.gz && cd pyicu-*

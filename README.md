@@ -1,6 +1,6 @@
 # icukit-icu
 
-**ICU 75.1 for pip** - International Components for Unicode, packaged for Python.
+**ICU for pip** - International Components for Unicode, packaged for Python.
 
 ## Install
 
@@ -10,22 +10,27 @@ pip install icukit-icu
 
 ## What's included
 
-Everything from ICU 75.1:
+- **PyICU** - Python bindings (`import icu`)
+- **ICU libraries** - libicuuc, libicui18n, libicudata (bundled)
 
-- **Libraries**: libicuuc, libicui18n, libicudata
-- **Headers**: Full ICU C/C++ headers
-- **Data**: ICU data files
-- **PyICU**: Python bindings (`import icu`)
+No Homebrew. No apt-get. Just pip.
 
 ## Usage
 
 ```python
 import icu
 
-# You have full PyICU
 t = icu.Transliterator.createInstance("Latin-Cyrillic")
-print(t.transliterate("Hello"))
+print(t.transliterate("Hello"))  # Хелло
 ```
+
+## Versions
+
+| icukit-icu | ICU | PyICU |
+|------------|-----|-------|
+| 75.1.x     | 75.1 | 2.16 |
+
+PyICU 2.16 requires ICU 75+ to be built with C++17 (handled automatically in our wheels).
 
 ## Platforms
 
@@ -33,10 +38,6 @@ print(t.transliterate("Hello"))
 - Linux: x86_64 (manylinux_2_28)
 - Python: 3.9 - 3.12
 
-## Version
-
-ICU 75.1 (release-75-1)
-
 ## License
 
-ICU License
+ICU License (BSD-style)
