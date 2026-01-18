@@ -36,3 +36,4 @@ packages = ["icu", "icukit_pyicu"]
 
 [tool.setuptools.package-data]
 icukit_pyicu = ["include/**/*", "lib/**/*", "bin/**/*"]
+icu = ["*.so", "*.dylib", ".dylibs/*", ".libs/*"]

@@ -26,14 +26,14 @@ jobs:
           - {runner: macos-14, os: macos-arm64, python: '3.10'}
           - {runner: macos-14, os: macos-arm64, python: '3.11'}
           - {runner: macos-14, os: macos-arm64, python: '3.12'}
-          - {runner: macos-13, os: macos-x64, python: '3.9'}
-          - {runner: macos-13, os: macos-x64, python: '3.10'}
-          - {runner: macos-13, os: macos-x64, python: '3.11'}
-          - {runner: macos-13, os: macos-x64, python: '3.12'}
+          - {runner: macos-14, os: macos-arm64, python: '3.13'}
+          - {runner: macos-14, os: macos-arm64, python: '3.14'}
           - {runner: ubuntu-latest, os: linux, python: '3.9'}
           - {runner: ubuntu-latest, os: linux, python: '3.10'}
           - {runner: ubuntu-latest, os: linux, python: '3.11'}
           - {runner: ubuntu-latest, os: linux, python: '3.12'}
+          - {runner: ubuntu-latest, os: linux, python: '3.13'}
+          - {runner: ubuntu-latest, os: linux, python: '3.14'}
 
     steps:
       - uses: actions/checkout@v4
@@ -45,9 +45,9 @@ jobs:
         run: |
           if [ "${{ runner.os }}" = "Linux" ]; then
             sudo apt-get update
-            sudo apt-get install -y patchelf pkg-config build-essential
+            sudo apt-get install -y patchelf pkg-config build-essential unzip
           fi
-          pip install wheel build delocate auditwheel
+          pip install --upgrade pip setuptools wheel build delocate auditwheel
 
       - name: Build ICU from source
         run: |
@@ -62,11 +62,11 @@ jobs:
           
           cd icu/source
           
-          # Use headerpad_max_install_names so delocate can rewrite IDs on macOS
-          export LDFLAGS="-Wl,-headerpad_max_install_names"
-          
           # Enable static and shared, but disable samples/tests to save time
-          if [ "${{ runner.os }}" = "macOS" ]; then
+          OS_NAME=$(echo "${{ runner.os }}" | tr '[:upper:]' '[:lower:]')
+          if [ "$OS_NAME" = "macos" ]; then
+            # Use headerpad_max_install_names so delocate can rewrite IDs on macOS
+            export LDFLAGS="-Wl,-headerpad_max_install_names"
             ./runConfigureICU MacOSX --prefix=/tmp/icu-dist --enable-static --enable-shared --disable-samples --disable-tests
           else
             ./configure --prefix=/tmp/icu-dist --enable-static --enable-shared --disable-samples --disable-tests
@@ -83,38 +83,99 @@ jobs:
       - name: Build PyICU
         env:
           CXXFLAGS: -std=c++17
-          LDFLAGS: -L/tmp/icu-dist/lib -licui18n -licuuc -licudata -Wl,-headerpad_max_install_names
           CPPFLAGS: -I/tmp/icu-dist/include
         run: |
+          set -x
+          
+          # Debug: show what ICU tools will provide
+          echo "=== icu-config --ldflags ==="
+          /tmp/icu-dist/bin/icu-config --ldflags
+          
           pip download "PyICU==${{ env.PYICU_VERSION }}" --no-deps --no-binary :all: -d /tmp/src
-          cd /tmp/src && tar xzf *.tar.gz && cd pyicu-*
+          cd /tmp/src
+          tar xzf *.tar.gz
+          cd "pyicu-${{ env.PYICU_VERSION }}"
           
-          # Force PyICU to use our specific ICU
+          # Let PyICU use icu-config for detection (already in PATH)
           export ICU_VERSION="${{ env.ICU_VERSION }}"
-          export PYICU_INCLUDES="/tmp/icu-dist/include"
-          export PYICU_LFLAGS="-L/tmp/icu-dist/lib -licui18n -licuuc -licudata"
           
-          pip wheel . --no-deps -w /tmp/raw
+          if [ "${{ runner.os }}" = "macOS" ]; then
+            # macOS: explicitly set LDFLAGS since -undefined dynamic_lookup causes issues
+            export LDFLAGS="-L/tmp/icu-dist/lib -licui18n -licuuc -licudata -Wl,-headerpad_max_install_names"
+            # Force single-arch build to match our ICU libs (not universal2)
+            ARCH=$(uname -m)
+            export ARCHFLAGS="-arch ${ARCH}"
+            export _PYTHON_HOST_PLATFORM="macosx-11.0-${ARCH}"
+          fi
+          # Linux: Don't set LDFLAGS - it prepends flags in wrong order for GNU ld
+          # PyICU will use icu-config which outputs flags in correct order
+          
+          pip wheel . --no-deps -w /tmp/raw -v 2>&1 | tee /tmp/pyicu-build.log
+          
+          # Show the linker command and verify -l flags come after .o files
+          echo "=== Linker commands ==="
+          grep -E "g\+\+|clang\+\+" /tmp/pyicu-build.log | grep -E "\.so" || echo "No linker commands found"
+          
+          # Check if ICU is linked
+          echo "=== ldd on built .so ==="
+          find /tmp/raw -name "*.whl" -exec unzip -o {} "icu/*.so" -d /tmp/rawcheck \;
+          ldd /tmp/rawcheck/icu/*.so || true
 
       - name: Bundle (macOS)
         if: runner.os == 'macOS'
         run: |
           export DYLD_LIBRARY_PATH="/tmp/icu-dist/lib"
-          delocate-wheel -v -w /tmp/bundled /tmp/raw/*.whl
+          # Use --require-archs to match the runner architecture
+          ARCH=$(uname -m)
+          delocate-wheel -v --require-archs "${ARCH}" -w /tmp/bundled /tmp/raw/*.whl
           mkdir /tmp/pkg && cd /tmp/pkg && unzip /tmp/bundled/*.whl
 
       - name: Bundle (Linux)
         if: runner.os == 'Linux'
         run: |
-          # Use manylinux_2_28 or higher to ensure compatibility with our built ICU
-          auditwheel repair --plat manylinux_2_28_x86_64 -w /tmp/bundled /tmp/raw/*.whl
+          # Set LD_LIBRARY_PATH so auditwheel can find ICU libraries
+          export LD_LIBRARY_PATH="/tmp/icu-dist/lib:${LD_LIBRARY_PATH:-}"
+          
+          # Show what auditwheel sees in the raw wheel
+          echo "=== auditwheel show (before repair) ==="
+          auditwheel show /tmp/raw/*.whl
+          
+          # Check external deps with ldd
+          echo "=== ldd on _icu_.so ==="
+          cd /tmp/raw && unzip -l *.whl
+          unzip -o *.whl "icu/*.so" -d /tmp/rawpkg
+          ldd /tmp/rawpkg/icu/*.so | grep -i icu || echo "No ICU deps found by ldd"
+          
+          # Use manylinux_2_38 to match ubuntu-24.04 glibc
+          auditwheel repair --plat manylinux_2_38_x86_64 -w /tmp/bundled /tmp/raw/*.whl
           mkdir /tmp/pkg && cd /tmp/pkg && unzip /tmp/bundled/*.whl
 
       - name: Build wheel
         run: |
-          # 1. Copy PyICU runtime
+          # 1. Copy PyICU runtime (icu/ package and bundled libs)
+          rm -rf icu
           cp -R /tmp/pkg/icu .
-          [ -d /tmp/pkg/pyicu.libs ] && cp -R /tmp/pkg/pyicu.libs . || true
+          # Debug: show what auditwheel/delocate created
+          echo "Contents of /tmp/pkg:"
+          ls -la /tmp/pkg/
+          echo "Contents of /tmp/pkg/icu:"
+          ls -la /tmp/pkg/icu/
+          # Copy bundled libs INTO icu package (so they're included in wheel)
+          # auditwheel creates pyicu.libs/ at wheel root, we move into icu/.libs/
+          if [ -d /tmp/pkg/pyicu.libs ]; then
+            mkdir -p icu/.libs
+            cp -R /tmp/pkg/pyicu.libs/* icu/.libs/
+            # Fix rpath to point to .libs relative to the .so
+            for so in icu/*.so; do
+              if [ -f "$so" ]; then
+                patchelf --set-rpath '$ORIGIN/.libs' "$so"
+                echo "Fixed rpath for $so"
+              fi
+            done
+            ls -la icu/.libs/
+          fi
+          # macOS uses .dylibs inside the package already (delocate does this)
+          [ -d /tmp/pkg/icu/.dylibs ] && echo "Found icu/.dylibs (macOS)" || true
 
           # 2. Bundle ICU dev files from our /tmp/icu-dist
           mkdir -p icukit_pyicu/include icukit_pyicu/lib icukit_pyicu/bin
@@ -123,13 +184,22 @@ jobs:
           cp -R /tmp/icu-dist/bin/ icukit_pyicu/bin/
 
           # 3. Set version dynamically
-          sed -i.bak "s/^version = .*/version = \"${{ env.ICU_VERSION }}.0\"/" pyproject.toml
+          sed "s/^version = .*/version = \"${{ env.ICU_VERSION }}.0\"/" pyproject.toml > pyproject.toml.new && mv pyproject.toml.new pyproject.toml
 
           python -m build --wheel
 
       - name: Test
         run: |
           pip install dist/*.whl
+          rm -rf icu
+          
+          # On Linux, need LD_LIBRARY_PATH to find bundled libs
+          if [ "${{ runner.os }}" = "Linux" ]; then
+            SITE=$(python -c "import site; print(site.getsitepackages()[0])")
+            export LD_LIBRARY_PATH="$SITE/icu/.libs:${LD_LIBRARY_PATH:-}"
+            echo "Set LD_LIBRARY_PATH=$LD_LIBRARY_PATH"
+          fi
+          
           python -c "import icu; print(f'ICU {icu.ICU_VERSION}')"
 
       - uses: actions/upload-artifact@v4
