@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "icukit-icu"
-version = "75.1.0"
-description = "ICU 75.1 - International Components for Unicode, packaged for pip"
+dynamic = ["version"]
+description = "ICU - International Components for Unicode, packaged for pip"
 readme = "README.md"
 license = {text = "ICU License"}
 authors = [{name = "Kevin A. Lenzo", email = "lenzo@duolingo.com"}]
@@ -24,6 +24,9 @@ classifiers = [
 [project.urls]
 Homepage = "https://icu.unicode.org/"
 Source = "https://github.com/unicode-org/icu"
+
+[tool.setuptools.dynamic]
+version = {file = "VERSION"}
 
 [tool.setuptools]
 include-package-data = true

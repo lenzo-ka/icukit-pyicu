@@ -1,15 +1,21 @@
-# Build ICU 75.1 wheels for pip
+# Build ICU wheels for pip
+#
+# Packages a specific ICU release for pip installation.
+# Version is read from VERSION file.
+
 name: Build
 
 on:
   workflow_dispatch:
+    inputs:
+      icu_version:
+        description: 'ICU version (e.g., 75, 74)'
+        required: false
+        default: ''
   release:
     types: [published]
   push:
     tags: ['v*']
-
-env:
-  ICU_VERSION: "75"
 
 jobs:
   build:
@@ -38,15 +44,27 @@ jobs:
         with:
           python-version: ${{ matrix.python }}
 
+      - name: Get ICU version
+        id: version
+        run: |
+          # Use input or derive from VERSION file
+          if [ -n "${{ inputs.icu_version }}" ]; then
+            ICU_VERSION="${{ inputs.icu_version }}"
+          else
+            ICU_VERSION=$(cat VERSION | cut -d. -f1)
+          fi
+          echo "icu=$ICU_VERSION" >> $GITHUB_OUTPUT
+          echo "Building ICU $ICU_VERSION"
+
       - name: Install tools
         run: pip install wheel build
 
       - name: Setup (macOS)
         if: runner.os == 'macOS'
         run: |
-          brew install icu4c@${{ env.ICU_VERSION }} pkg-config
+          brew install icu4c@${{ steps.version.outputs.icu }} pkg-config
           pip install delocate
-          echo "PKG_CONFIG_PATH=$(brew --prefix icu4c@${{ env.ICU_VERSION }})/lib/pkgconfig" >> $GITHUB_ENV
+          echo "PKG_CONFIG_PATH=$(brew --prefix icu4c@${{ steps.version.outputs.icu }})/lib/pkgconfig" >> $GITHUB_ENV
 
       - name: Setup (Linux)
         if: runner.os == 'Linux'
@@ -61,13 +79,13 @@ jobs:
           cd /tmp/src && tar xzf *.tar.gz && cd pyicu-*
           pip wheel . --no-deps -w /tmp/raw
 
-      - name: Bundle ICU (macOS)
+      - name: Bundle (macOS)
         if: runner.os == 'macOS'
         run: |
           delocate-wheel -v -w /tmp/bundled /tmp/raw/*.whl
           mkdir /tmp/pkg && cd /tmp/pkg && unzip /tmp/bundled/*.whl
 
-      - name: Bundle ICU (Linux)
+      - name: Bundle (Linux)
         if: runner.os == 'Linux'
         run: |
           auditwheel repair --plat manylinux_2_28_x86_64 -w /tmp/bundled /tmp/raw/*.whl
@@ -102,4 +120,5 @@ jobs:
           pattern: wheel-*
           merge-multiple: true
           path: dist
+      - run: ls -la dist/
       - uses: pypa/gh-action-pypi-publish@release/v1
