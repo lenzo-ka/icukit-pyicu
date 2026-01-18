@@ -1,17 +1,9 @@
-# Build ICU wheels for pip
-#
-# Packages ICU + PyICU for pip installation.
-# ICU 75+ requires C++17 for PyICU.
+# Build ICU 75.1 + PyICU 2.16 wheels
 
 name: Build
 
 on:
   workflow_dispatch:
-    inputs:
-      icu_version:
-        description: 'ICU major version (e.g., 75)'
-        required: false
-        default: ''
   release:
     types: [published]
   push:
@@ -44,32 +36,15 @@ jobs:
         with:
           python-version: ${{ matrix.python }}
 
-      - name: Get ICU version
-        id: version
-        run: |
-          if [ -n "${{ inputs.icu_version }}" ]; then
-            ICU_VERSION="${{ inputs.icu_version }}"
-          else
-            ICU_VERSION=$(cat VERSION | cut -d. -f1)
-          fi
-          echo "icu=$ICU_VERSION" >> $GITHUB_OUTPUT
-          
-          # ICU 75+ requires C++17 for PyICU
-          if [ "$ICU_VERSION" -ge 75 ]; then
-            echo "cxxflags=-std=c++17" >> $GITHUB_OUTPUT
-          else
-            echo "cxxflags=-std=c++11" >> $GITHUB_OUTPUT
-          fi
-
       - name: Install tools
         run: pip install wheel build
 
       - name: Setup (macOS)
         if: runner.os == 'macOS'
         run: |
-          brew install icu4c@${{ steps.version.outputs.icu }} pkg-config
+          brew install icu4c@75 pkg-config
           pip install delocate
-          echo "PKG_CONFIG_PATH=$(brew --prefix icu4c@${{ steps.version.outputs.icu }})/lib/pkgconfig" >> $GITHUB_ENV
+          echo "PKG_CONFIG_PATH=$(brew --prefix icu4c@75)/lib/pkgconfig" >> $GITHUB_ENV
 
       - name: Setup (Linux)
         if: runner.os == 'Linux'
@@ -80,7 +55,7 @@ jobs:
 
       - name: Build PyICU
         env:
-          CXXFLAGS: ${{ steps.version.outputs.cxxflags }}
+          CXXFLAGS: -std=c++17
         run: |
           pip download PyICU --no-deps --no-binary :all: -d /tmp/src
           cd /tmp/src && tar xzf *.tar.gz && cd pyicu-*
@@ -127,5 +102,4 @@ jobs:
           pattern: wheel-*
           merge-multiple: true
           path: dist
-      - run: ls -la dist/
       - uses: pypa/gh-action-pypi-publish@release/v1
