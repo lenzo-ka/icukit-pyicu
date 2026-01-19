@@ -227,7 +227,7 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     if: github.event_name == 'release'
-    environment: testpypi
+    environment: pypi
     permissions:
       id-token: write
     steps:
@@ -237,5 +237,3 @@ jobs:
           merge-multiple: true
           path: dist
       - uses: pypa/gh-action-pypi-publish@release/v1
-        with:
-          repository-url: https://test.pypi.org/legacy/
