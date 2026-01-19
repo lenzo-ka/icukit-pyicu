@@ -196,22 +196,6 @@ jobs:
             rm "$whl"  # Remove the untagged wheel
           done
           cd ..
-          
-          # Linux: run auditwheel repair on final wheel to fix rpath
-          if [ "${{ runner.os }}" = "Linux" ]; then
-            export LD_LIBRARY_PATH="/tmp/icu-dist/lib:${LD_LIBRARY_PATH:-}"
-            mkdir -p dist-repaired
-            auditwheel repair --plat manylinux_2_35_x86_64 -w dist-repaired dist/*.whl
-            rm dist/*.whl
-            mv dist-repaired/*.whl dist/
-            rmdir dist-repaired
-            
-            # Verify rpath is set correctly
-            echo "=== Verifying rpath in final wheel ==="
-            cd dist && unzip -q *.whl -d /tmp/verify-wheel
-            readelf -d /tmp/verify-wheel/icu/*.so | grep -i runpath || echo "No RUNPATH found"
-            cd ..
-          fi
 
       - name: Test
         run: |
