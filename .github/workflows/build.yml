@@ -149,66 +149,137 @@ jobs:
 
       - name: Build wheel
         run: |
-          # 1. Copy PyICU runtime (icu/ package and bundled libs)
-          rm -rf icu
-          cp -R /tmp/pkg/icu .
-          # Debug: show what auditwheel/delocate created
-          echo "Contents of /tmp/pkg:"
-          ls -la /tmp/pkg/
-          echo "Contents of /tmp/pkg/icu:"
-          ls -la /tmp/pkg/icu/
-          # Copy bundled libs INTO icu package (so they're included in wheel)
-          # auditwheel creates pyicu.libs/ at wheel root, we move into icu/.libs/
-          if [ -d /tmp/pkg/pyicu.libs ]; then
-            mkdir -p icu/.libs
-            cp -R /tmp/pkg/pyicu.libs/* icu/.libs/
-            # Fix rpath to point to .libs relative to the .so
-            for so in icu/*.so; do
-              if [ -f "$so" ]; then
-                patchelf --set-rpath '$ORIGIN/.libs' "$so"
-                echo "Fixed rpath for $so"
-              fi
-            done
-            ls -la icu/.libs/
-          fi
-          # macOS uses .dylibs inside the package already (delocate does this)
-          [ -d /tmp/pkg/icu/.dylibs ] && echo "Found icu/.dylibs (macOS)" || true
-
-          # 2. Bundle ICU dev files from our /tmp/icu-dist
-          mkdir -p icukit_pyicu/include icukit_pyicu/lib icukit_pyicu/bin
-          cp -R /tmp/icu-dist/include/ icukit_pyicu/include/
-          cp -R /tmp/icu-dist/lib/ icukit_pyicu/lib/
-          cp -R /tmp/icu-dist/bin/ icukit_pyicu/bin/
-
-          python -m build --wheel
+          # Instead of rebuilding with setuptools (which loses rpath),
+          # directly modify the auditwheel-repaired wheel to add icukit_pyicu
           
-          # Add platform-specific tags to the wheel
-          pip install wheel
           PYVER=$(python -c "import sys; print(f'cp{sys.version_info.major}{sys.version_info.minor}')")
           if [ "${{ runner.os }}" = "macOS" ]; then
             PLAT="macosx_11_0_arm64"
           else
             PLAT="manylinux_2_35_x86_64"
           fi
-          cd dist
-          for whl in *.whl; do
-            wheel tags --python-tag="${PYVER}" --abi-tag="${PYVER}" --platform-tag="${PLAT}" "$whl"
-            rm "$whl"  # Remove the untagged wheel
-          done
-          cd ..
+          
+          # Get the bundled wheel from auditwheel/delocate
+          BUNDLED_WHL=$(ls /tmp/bundled/*.whl)
+          echo "Working with: $BUNDLED_WHL"
+          
+          # Create working directory
+          mkdir -p /tmp/wheel-work
+          cd /tmp/wheel-work
+          unzip -q "$BUNDLED_WHL"
+          
+          # Show what auditwheel created (for debugging)
+          echo "=== Wheel contents ==="
+          find . -type f | head -20
+          
+          # Verify rpath is set correctly by auditwheel
+          if [ "${{ runner.os }}" = "Linux" ]; then
+            echo "=== Checking rpath ==="
+            readelf -d icu/*.so | grep -i runpath || echo "No RUNPATH found"
+          fi
+          
+          # Add icukit_pyicu package with ICU dev files
+          mkdir -p icukit_pyicu/include icukit_pyicu/lib icukit_pyicu/bin
+          cp -R /tmp/icu-dist/include/* icukit_pyicu/include/
+          cp -R /tmp/icu-dist/lib/* icukit_pyicu/lib/
+          cp -R /tmp/icu-dist/bin/* icukit_pyicu/bin/
+          
+          # Copy icukit_pyicu Python files from repo
+          cp $GITHUB_WORKSPACE/icukit_pyicu/__init__.py icukit_pyicu/
+          cp $GITHUB_WORKSPACE/icukit_pyicu/__main__.py icukit_pyicu/
+          
+          # Update the dist-info to reflect our package name
+          OLD_DIST=$(ls -d *.dist-info)
+          NEW_DIST="icukit_pyicu-78.2.1.dist-info"
+          mv "$OLD_DIST" "$NEW_DIST"
+          
+          # Update METADATA
+          cat > "$NEW_DIST/METADATA" << 'EOF'
+          Metadata-Version: 2.1
+          Name: icukit-pyicu
+          Version: 78.2.1
+          Summary: Bundled ICU and PyICU for pip
+          Author: Kevin A. Lenzo
+          Author-email: keinlenzo@gmail.com
+          License: MIT
+          Project-URL: Homepage, https://github.com/lenzo-ka/icukit-pyicu
+          Keywords: icu,unicode,i18n,pyicu
+          Classifier: Development Status :: 5 - Production/Stable
+          Classifier: Intended Audience :: Developers
+          Classifier: License :: OSI Approved :: MIT License
+          Classifier: Operating System :: MacOS
+          Classifier: Operating System :: POSIX :: Linux
+          Classifier: Programming Language :: Python :: 3
+          Requires-Python: >=3.9
+          Description-Content-Type: text/markdown
+          
+          # icukit-pyicu
+          
+          Bundled ICU and PyICU for easy pip installation.
+          EOF
+          # Remove leading spaces from heredoc
+          sed -i 's/^          //' "$NEW_DIST/METADATA"
+          
+          # Update WHEEL file
+          cat > "$NEW_DIST/WHEEL" << EOF
+          Wheel-Version: 1.0
+          Generator: icukit-pyicu-build
+          Root-Is-Purelib: false
+          Tag: ${PYVER}-${PYVER}-${PLAT}
+          EOF
+          
+          # Update top_level.txt
+          echo -e "icu\nicukit_pyicu" > "$NEW_DIST/top_level.txt"
+          
+          # Add entry_points.txt for CLI
+          cat > "$NEW_DIST/entry_points.txt" << 'EOF'
+          [console_scripts]
+          icukit-config = icukit_pyicu.__main__:main
+          EOF
+          
+          # Regenerate RECORD (list of files with hashes)
+          python3 << 'PYTHON'
+          import hashlib
+          import base64
+          import os
+          
+          def file_hash(path):
+              with open(path, 'rb') as f:
+                  digest = hashlib.sha256(f.read()).digest()
+              return 'sha256=' + base64.urlsafe_b64encode(digest).rstrip(b'=').decode()
+          
+          def file_size(path):
+              return os.path.getsize(path)
+          
+          records = []
+          for root, dirs, files in os.walk('.'):
+              for f in files:
+                  path = os.path.join(root, f)[2:]  # Remove ./
+                  if path.endswith('RECORD'):
+                      records.append(f'{path},,')
+                  else:
+                      records.append(f'{path},{file_hash(path)},{file_size(path)}')
+          
+          # Find the dist-info directory
+          dist_info = [d for d in os.listdir('.') if d.endswith('.dist-info')][0]
+          with open(f'{dist_info}/RECORD', 'w') as f:
+              f.write('\n'.join(sorted(records)) + '\n')
+          PYTHON
+          
+          # Create the final wheel
+          mkdir -p $GITHUB_WORKSPACE/dist
+          WHEEL_NAME="icukit_pyicu-78.2.1-${PYVER}-${PYVER}-${PLAT}.whl"
+          zip -rq "$GITHUB_WORKSPACE/dist/$WHEEL_NAME" .
+          
+          echo "Created: $WHEEL_NAME"
+          ls -la $GITHUB_WORKSPACE/dist/
 
       - name: Test
         run: |
           pip install dist/*.whl
           rm -rf icu
           
-          # On Linux, set LD_LIBRARY_PATH to find bundled libs
-          # (rpath doesn't survive the wheel rebuild process)
-          if [ "${{ runner.os }}" = "Linux" ]; then
-            SITE=$(python -c "import site; print(site.getsitepackages()[0])")
-            export LD_LIBRARY_PATH="$SITE/icu/.libs:${LD_LIBRARY_PATH:-}"
-          fi
-          
+          # No LD_LIBRARY_PATH needed - rpath is preserved from auditwheel
           pip install pytest
           python -m pytest tests/ -v
 
