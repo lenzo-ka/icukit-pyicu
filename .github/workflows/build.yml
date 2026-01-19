@@ -199,19 +199,29 @@ jobs:
             rm "$whl"  # Remove the untagged wheel
           done
           cd ..
+          
+          # Linux: run auditwheel repair on final wheel to fix rpath
+          if [ "${{ runner.os }}" = "Linux" ]; then
+            export LD_LIBRARY_PATH="/tmp/icu-dist/lib:${LD_LIBRARY_PATH:-}"
+            mkdir -p dist-repaired
+            auditwheel repair --plat manylinux_2_38_x86_64 -w dist-repaired dist/*.whl
+            rm dist/*.whl
+            mv dist-repaired/*.whl dist/
+            rmdir dist-repaired
+            
+            # Verify rpath is set correctly
+            echo "=== Verifying rpath in final wheel ==="
+            cd dist && unzip -q *.whl -d /tmp/verify-wheel
+            readelf -d /tmp/verify-wheel/icu/*.so | grep -i runpath || echo "No RUNPATH found"
+            cd ..
+          fi
 
       - name: Test
         run: |
           pip install dist/*.whl
           rm -rf icu
           
-          # On Linux, need LD_LIBRARY_PATH to find bundled libs
-          if [ "${{ runner.os }}" = "Linux" ]; then
-            SITE=$(python -c "import site; print(site.getsitepackages()[0])")
-            export LD_LIBRARY_PATH="$SITE/icu/.libs:${LD_LIBRARY_PATH:-}"
-          fi
-          
-          # Run test suite
+          # Run test suite (no LD_LIBRARY_PATH needed - auditwheel sets rpath)
           pip install pytest
           python -m pytest tests/ -v
 
