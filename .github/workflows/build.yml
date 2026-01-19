@@ -1,9 +1,9 @@
-# Build ICU 75.1 + PyICU 2.16 wheels for icukit-pyicu
+# Build ICU 78.2 + PyICU 2.16 wheels for icukit-pyicu
 
 name: Build
 
 env:
-  ICU_VERSION: "75.1"
+  ICU_VERSION: "78.2"
   PYICU_VERSION: "2.16"
 
 on:
@@ -51,11 +51,8 @@ jobs:
 
       - name: Build ICU from source
         run: |
-          # Transform 75.1 -> 75_1 and 75-1
-          V_UNDERSCORE=$(echo ${{ env.ICU_VERSION }} | tr . _)
-          V_DASH=$(echo ${{ env.ICU_VERSION }} | tr . -)
-          
-          URL="https://github.com/unicode-org/icu/releases/download/release-${V_DASH}/icu4c-${V_UNDERSCORE}-src.tgz"
+          # ICU 78+ uses release-X.Y tags and icu4c-X.Y-sources.tgz naming
+          URL="https://github.com/unicode-org/icu/releases/download/release-${{ env.ICU_VERSION }}/icu4c-${{ env.ICU_VERSION }}-sources.tgz"
           echo "Downloading ICU from $URL"
           curl -L "$URL" -o icu.tgz
           tar xzf icu.tgz

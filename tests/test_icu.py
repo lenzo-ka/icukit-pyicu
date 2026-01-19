@@ -5,7 +5,7 @@ import icu
 
 def test_version():
     """Verify ICU version."""
-    assert icu.ICU_VERSION.startswith("75.")
+    assert icu.ICU_VERSION.startswith("78.")
     # PyICU version is available as icu.VERSION (tuple) not PYICU_VERSION
     assert hasattr(icu, "ICU_VERSION")
 
