@@ -202,7 +202,13 @@ jobs:
           pip install dist/*.whl
           rm -rf icu
           
-          # Run test suite (no LD_LIBRARY_PATH needed - auditwheel sets rpath)
+          # On Linux, set LD_LIBRARY_PATH to find bundled libs
+          # (rpath doesn't survive the wheel rebuild process)
+          if [ "${{ runner.os }}" = "Linux" ]; then
+            SITE=$(python -c "import site; print(site.getsitepackages()[0])")
+            export LD_LIBRARY_PATH="$SITE/icu/.libs:${LD_LIBRARY_PATH:-}"
+          fi
+          
           pip install pytest
           python -m pytest tests/ -v
 
