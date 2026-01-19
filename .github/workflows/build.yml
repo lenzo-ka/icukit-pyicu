@@ -28,12 +28,12 @@ jobs:
           - {runner: macos-14, os: macos-arm64, python: '3.12'}
           - {runner: macos-14, os: macos-arm64, python: '3.13'}
           - {runner: macos-14, os: macos-arm64, python: '3.14'}
-          - {runner: ubuntu-latest, os: linux, python: '3.9'}
-          - {runner: ubuntu-latest, os: linux, python: '3.10'}
-          - {runner: ubuntu-latest, os: linux, python: '3.11'}
-          - {runner: ubuntu-latest, os: linux, python: '3.12'}
-          - {runner: ubuntu-latest, os: linux, python: '3.13'}
-          - {runner: ubuntu-latest, os: linux, python: '3.14'}
+          - {runner: ubuntu-22.04, os: linux, python: '3.9'}
+          - {runner: ubuntu-22.04, os: linux, python: '3.10'}
+          - {runner: ubuntu-22.04, os: linux, python: '3.11'}
+          - {runner: ubuntu-22.04, os: linux, python: '3.12'}
+          - {runner: ubuntu-22.04, os: linux, python: '3.13'}
+          - {runner: ubuntu-22.04, os: linux, python: '3.14'}
 
     steps:
       - uses: actions/checkout@v4
@@ -143,8 +143,8 @@ jobs:
           unzip -o *.whl "icu/*.so" -d /tmp/rawpkg
           ldd /tmp/rawpkg/icu/*.so | grep -i icu || echo "No ICU deps found by ldd"
           
-          # Use manylinux_2_38 to match ubuntu-24.04 glibc
-          auditwheel repair --plat manylinux_2_38_x86_64 -w /tmp/bundled /tmp/raw/*.whl
+          # Use manylinux_2_35 to match ubuntu-22.04 glibc
+          auditwheel repair --plat manylinux_2_35_x86_64 -w /tmp/bundled /tmp/raw/*.whl
           mkdir /tmp/pkg && cd /tmp/pkg && unzip /tmp/bundled/*.whl
 
       - name: Build wheel
@@ -188,7 +188,7 @@ jobs:
           if [ "${{ runner.os }}" = "macOS" ]; then
             PLAT="macosx_11_0_arm64"
           else
-            PLAT="manylinux_2_38_x86_64"
+            PLAT="manylinux_2_35_x86_64"
           fi
           cd dist
           for whl in *.whl; do
@@ -201,7 +201,7 @@ jobs:
           if [ "${{ runner.os }}" = "Linux" ]; then
             export LD_LIBRARY_PATH="/tmp/icu-dist/lib:${LD_LIBRARY_PATH:-}"
             mkdir -p dist-repaired
-            auditwheel repair --plat manylinux_2_38_x86_64 -w dist-repaired dist/*.whl
+            auditwheel repair --plat manylinux_2_35_x86_64 -w dist-repaired dist/*.whl
             rm dist/*.whl
             mv dist-repaired/*.whl dist/
             rmdir dist-repaired
