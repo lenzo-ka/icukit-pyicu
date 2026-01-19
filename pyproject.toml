@@ -21,7 +21,7 @@ classifiers = [
 ]
 
 [project.urls]
-Homepage = "https://icu.unicode.org/"
+Homepage = "https://github.com/lenzo-ka/icukit-pyicu"
 
 [project.scripts]
 icukit-config = "icukit_pyicu.__main__:main"
