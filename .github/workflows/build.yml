@@ -211,7 +211,7 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     if: github.event_name == 'release'
-    environment: pypi
+    environment: testpypi
     permissions:
       id-token: write
     steps:
