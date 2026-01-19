@@ -217,8 +217,8 @@ jobs:
           
           Bundled ICU and PyICU for easy pip installation.
           EOF
-          # Remove leading spaces from heredoc
-          sed -i 's/^          //' "$NEW_DIST/METADATA"
+          # Remove leading spaces from heredoc (use temp file for portability)
+          sed 's/^          //' "$NEW_DIST/METADATA" > "$NEW_DIST/METADATA.tmp" && mv "$NEW_DIST/METADATA.tmp" "$NEW_DIST/METADATA"
           
           # Update WHEEL file
           cat > "$NEW_DIST/WHEEL" << EOF
