@@ -187,6 +187,21 @@ jobs:
           sed "s/^version = .*/version = \"${{ env.ICU_VERSION }}.0\"/" pyproject.toml > pyproject.toml.new && mv pyproject.toml.new pyproject.toml
 
           python -m build --wheel
+          
+          # Add platform-specific tags to the wheel
+          pip install wheel
+          PYVER=$(python -c "import sys; print(f'cp{sys.version_info.major}{sys.version_info.minor}')")
+          if [ "${{ runner.os }}" = "macOS" ]; then
+            PLAT="macosx_11_0_arm64"
+          else
+            PLAT="manylinux_2_38_x86_64"
+          fi
+          cd dist
+          for whl in *.whl; do
+            wheel tags --python-tag="${PYVER}" --abi-tag="${PYVER}" --platform-tag="${PLAT}" "$whl"
+            rm "$whl"  # Remove the untagged wheel
+          done
+          cd ..
 
       - name: Test
         run: |
@@ -197,10 +212,11 @@ jobs:
           if [ "${{ runner.os }}" = "Linux" ]; then
             SITE=$(python -c "import site; print(site.getsitepackages()[0])")
             export LD_LIBRARY_PATH="$SITE/icu/.libs:${LD_LIBRARY_PATH:-}"
-            echo "Set LD_LIBRARY_PATH=$LD_LIBRARY_PATH"
           fi
           
-          python -c "import icu; print(f'ICU {icu.ICU_VERSION}')"
+          # Run test suite
+          pip install pytest
+          python -m pytest tests/ -v
 
       - uses: actions/upload-artifact@v4
         with:
