@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "icukit-pyicu"
-version = "78.2.0"
+version = "78.2.1"
 description = "Bundled ICU and PyICU for pip"
 readme = "README.md"
 license = {file = "LICENSE"}

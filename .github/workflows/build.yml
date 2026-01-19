@@ -180,9 +180,6 @@ jobs:
           cp -R /tmp/icu-dist/lib/ icukit_pyicu/lib/
           cp -R /tmp/icu-dist/bin/ icukit_pyicu/bin/
 
-          # 3. Set version dynamically
-          sed "s/^version = .*/version = \"${{ env.ICU_VERSION }}.0\"/" pyproject.toml > pyproject.toml.new && mv pyproject.toml.new pyproject.toml
-
           python -m build --wheel
           
           # Add platform-specific tags to the wheel
