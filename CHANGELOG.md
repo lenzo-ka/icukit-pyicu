@@ -3,7 +3,7 @@
 All notable changes to this project are documented here. Versions track the
 bundled ICU release: `<ICU major>.<ICU minor>.<package revision>`.
 
-## 78.3.0 (unreleased)
+## 78.3.0 (2026-07-03)
 
 Bundles **ICU 78.3** and **PyICU 2.16.2** (previously ICU 78.2 / PyICU 2.16).
 ICU 78.3 includes CLDR 48.2 fixes and time-zone data 2026a.
