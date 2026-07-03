@@ -197,6 +197,11 @@ jobs:
             export LDFLAGS="-L/tmp/icu-dist/lib -licui18n -licuuc -licudata -mmacosx-version-min=${MACOSX_DEPLOYMENT_TARGET} -Wl,-headerpad_max_install_names"
             ARCH=$(uname -m)
             export ARCHFLAGS="-arch ${ARCH}"
+            # Force a single-arch platform tag. The runner's Python is a
+            # universal2 build, so without this pip tags the wheel universal2
+            # while we build arm64-only, and delocate then aborts demanding an
+            # x86_64 slice that does not exist.
+            export _PYTHON_HOST_PLATFORM="macosx-${MACOSX_DEPLOYMENT_TARGET}-${ARCH}"
           fi
           # Linux: let PyICU's icu-config detection order the flags for GNU ld.
           pip wheel . --no-deps -w /tmp/raw -v
