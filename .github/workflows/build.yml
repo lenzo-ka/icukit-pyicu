@@ -72,7 +72,7 @@ jobs:
           fi
           echo "OK: no hardcoded version literals."
 
-      - name: Select build matrix (smoke on push, full on tag/release/dispatch)
+      - name: Select build matrix (full on main/tag/release, smoke on feature branches)
         id: matrix
         run: |
           FULL='{"include":[
@@ -99,13 +99,17 @@ jobs:
             {"runner":"macos-14","os":"macos-arm64","python":"3.12","auditwheel_plat":""},
             {"runner":"ubuntu-22.04","os":"linux-x86_64","python":"3.12","auditwheel_plat":"manylinux_2_35_x86_64"}
           ]}'
-          # Full matrix only for releases, tag pushes, or an explicit dispatch
-          # request; everything else (branch push, plain dispatch) runs the
-          # cheap 2-wheel smoke matrix.
+          # Full matrix for releases, pushes to main, and tag pushes (main must
+          # always be fully validated), plus an explicit dispatch request.
+          # Feature-branch pushes and plain dispatches run the cheap 2-wheel
+          # smoke matrix.
           FULL_RUN=false
           case "${{ github.event_name }}" in
             release) FULL_RUN=true ;;
-            push) [ "${{ github.ref_type }}" = "tag" ] && FULL_RUN=true ;;
+            push)
+              case "${{ github.ref }}" in
+                refs/tags/*|refs/heads/main) FULL_RUN=true ;;
+              esac ;;
             workflow_dispatch) [ "${{ inputs.full }}" = "true" ] && FULL_RUN=true ;;
           esac
           if [ "$FULL_RUN" = "true" ]; then
