@@ -36,16 +36,40 @@ print(icukit_pyicu.get_bin())      # Path to ICU binaries
 It also provides a CLI tool similar to `pkg-config`:
 
 ```bash
-icukit-config --prefix
-icukit-config --cflags
-icukit-config --libs
+icukit-config --version   # package version, e.g. 78.3.0
+icukit-config --prefix    # install prefix
+icukit-config --cflags    # -I<includedir>
+icukit-config --libs      # -L<libdir> -licui18n -licuuc -licudata
 ```
+
+For example, to compile and link a C++ program against the bundled ICU:
+
+```bash
+LIBDIR=$(python -c 'import icukit_pyicu; print(icukit_pyicu.get_lib())')
+c++ -std=c++17 $(icukit-config --cflags) prog.cpp $(icukit-config --libs) -o prog
+```
+
+The program then needs to find the ICU libraries at run time:
+
+- **Linux:** link with `-Wl,-rpath,"$LIBDIR" -Wl,--disable-new-dtags` (the
+  `--disable-new-dtags` makes the rpath apply to ICU's own inter-library
+  dependencies), or set `LD_LIBRARY_PATH="$LIBDIR"`.
+- **macOS:** the bundled dylibs use bare install names, so set
+  `DYLD_LIBRARY_PATH="$LIBDIR"` when running.
 
 ## Platforms
 
+Wheels are published for:
+
 - macOS: ARM64 (Apple Silicon)
-- Linux: x86_64
-- Python: 3.9+
+- Linux: x86_64 and aarch64 (manylinux)
+- Python: 3.9–3.14
+
+Only these binary wheels are published; there is no source distribution
+(building requires compiling ICU from source, which the CI pipeline handles).
+Intel macOS and Windows are not currently targeted. The wheels bundle both the
+ICU runtime libraries and the full ICU dev headers/libraries, so they are large
+(tens of MB) by design.
 
 ## Note on PyICU
 
@@ -66,8 +90,9 @@ pip install icukit-pyicu
 
 ## License
 
-MIT (see `LICENSE` for details).
+The `icukit_pyicu` helper code is MIT (see `LICENSE`).
 
-This project bundles binary distributions of **ICU** (ICU License) and **PyICU** (MIT License).
-
-It also provides a Python module `icukit_pyicu` with helpers and the standard `icu` module.
+The published wheels bundle binary distributions of **ICU** (Unicode-3.0
+license, see `LICENSE-ICU`) and **PyICU** (MIT). Accordingly the wheel metadata
+declares the SPDX expression `MIT AND Unicode-3.0`, and both license files are
+included in the distribution.
