@@ -1,10 +1,16 @@
-# Build ICU 78.2 + PyICU 2.16 wheels for icukit-pyicu
+# Build ICU + PyICU wheels for icukit-pyicu.
+#
+# Versions and source checksums are the single source of truth in pyproject.toml
+# ([tool.icukit-pyicu] and project.version); the `config` job reads them and the
+# build jobs consume them as outputs. Do not hardcode version strings here.
+#
+# The final wheel is assembled with standard tooling: setuptools builds the
+# icukit_pyicu helper package (correct metadata + license files), then the ICU
+# runtime module from the delocate/auditwheel-repaired PyICU wheel is grafted in
+# and the tree is repacked with `wheel pack` (which regenerates RECORD). See
+# docs/BUILD.md.
 
 name: Build
-
-env:
-  ICU_VERSION: "78.2"
-  PYICU_VERSION: "2.16"
 
 on:
   workflow_dispatch:
@@ -14,26 +20,101 @@ on:
   release:
     types: [published]
 
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
+  config:
+    name: Resolve config
+    runs-on: ubuntu-latest
+    outputs:
+      pkg_version: ${{ steps.cfg.outputs.pkg_version }}
+      icu_version: ${{ steps.cfg.outputs.icu_version }}
+      pyicu_version: ${{ steps.cfg.outputs.pyicu_version }}
+      icu_sha256: ${{ steps.cfg.outputs.icu_sha256 }}
+      pyicu_sha256: ${{ steps.cfg.outputs.pyicu_sha256 }}
+      matrix: ${{ steps.matrix.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Read versions and pins from pyproject.toml
+        id: cfg
+        run: |
+          python - <<'PY' >> "$GITHUB_OUTPUT"
+          import tomllib
+          with open("pyproject.toml", "rb") as f:
+              d = tomllib.load(f)
+          k = d["tool"]["icukit-pyicu"]
+          print(f"pkg_version={d['project']['version']}")
+          print(f"icu_version={k['icu-version']}")
+          print(f"pyicu_version={k['pyicu-version']}")
+          print(f"icu_sha256={k['icu-sha256']}")
+          print(f"pyicu_sha256={k['pyicu-sha256']}")
+          PY
+
+      - name: Guard against hardcoded version literals in this workflow
+        run: |
+          # The workflow must derive versions from pyproject; a bare X.Y or X.Y.Z
+          # literal outside a comment is almost certainly a regression.
+          if grep -nE '[^#].*"[0-9]+\.[0-9]+(\.[0-9]+)?"' .github/workflows/build.yml \
+               | grep -vE 'python-version|actions/|@v[0-9]|ubuntu-|macos-|Wheel-Version|Metadata-Version|MACOSX_DEPLOYMENT_TARGET'; then
+            echo "::error::Hardcoded version literal found in build.yml; read it from pyproject.toml instead."
+            exit 1
+          fi
+          echo "OK: no hardcoded version literals."
+
+      - name: Select build matrix (smoke on push, full on tag/release/dispatch)
+        id: matrix
+        run: |
+          FULL='{"include":[
+            {"runner":"macos-14","os":"macos-arm64","python":"3.9","auditwheel_plat":""},
+            {"runner":"macos-14","os":"macos-arm64","python":"3.10","auditwheel_plat":""},
+            {"runner":"macos-14","os":"macos-arm64","python":"3.11","auditwheel_plat":""},
+            {"runner":"macos-14","os":"macos-arm64","python":"3.12","auditwheel_plat":""},
+            {"runner":"macos-14","os":"macos-arm64","python":"3.13","auditwheel_plat":""},
+            {"runner":"macos-14","os":"macos-arm64","python":"3.14","auditwheel_plat":""},
+            {"runner":"ubuntu-22.04","os":"linux-x86_64","python":"3.9","auditwheel_plat":"manylinux_2_35_x86_64"},
+            {"runner":"ubuntu-22.04","os":"linux-x86_64","python":"3.10","auditwheel_plat":"manylinux_2_35_x86_64"},
+            {"runner":"ubuntu-22.04","os":"linux-x86_64","python":"3.11","auditwheel_plat":"manylinux_2_35_x86_64"},
+            {"runner":"ubuntu-22.04","os":"linux-x86_64","python":"3.12","auditwheel_plat":"manylinux_2_35_x86_64"},
+            {"runner":"ubuntu-22.04","os":"linux-x86_64","python":"3.13","auditwheel_plat":"manylinux_2_35_x86_64"},
+            {"runner":"ubuntu-22.04","os":"linux-x86_64","python":"3.14","auditwheel_plat":"manylinux_2_35_x86_64"},
+            {"runner":"ubuntu-24.04-arm","os":"linux-aarch64","python":"3.9","auditwheel_plat":"manylinux_2_39_aarch64"},
+            {"runner":"ubuntu-24.04-arm","os":"linux-aarch64","python":"3.10","auditwheel_plat":"manylinux_2_39_aarch64"},
+            {"runner":"ubuntu-24.04-arm","os":"linux-aarch64","python":"3.11","auditwheel_plat":"manylinux_2_39_aarch64"},
+            {"runner":"ubuntu-24.04-arm","os":"linux-aarch64","python":"3.12","auditwheel_plat":"manylinux_2_39_aarch64"},
+            {"runner":"ubuntu-24.04-arm","os":"linux-aarch64","python":"3.13","auditwheel_plat":"manylinux_2_39_aarch64"},
+            {"runner":"ubuntu-24.04-arm","os":"linux-aarch64","python":"3.14","auditwheel_plat":"manylinux_2_39_aarch64"}
+          ]}'
+          SMOKE='{"include":[
+            {"runner":"macos-14","os":"macos-arm64","python":"3.12","auditwheel_plat":""},
+            {"runner":"ubuntu-22.04","os":"linux-x86_64","python":"3.12","auditwheel_plat":"manylinux_2_35_x86_64"}
+          ]}'
+          if [ "${{ github.event_name }}" = "push" ] && [ "${{ github.ref_type }}" != "tag" ]; then
+            echo "matrix=$(echo "$SMOKE" | tr -d '\n ')" >> "$GITHUB_OUTPUT"
+          else
+            echo "matrix=$(echo "$FULL" | tr -d '\n ')" >> "$GITHUB_OUTPUT"
+          fi
+
   build:
+    needs: config
     name: ${{ matrix.os }} py${{ matrix.python }}
     runs-on: ${{ matrix.runner }}
+    env:
+      ICU_VERSION: ${{ needs.config.outputs.icu_version }}
+      PYICU_VERSION: ${{ needs.config.outputs.pyicu_version }}
+      PKG_VERSION: ${{ needs.config.outputs.pkg_version }}
+      ICU_SHA256: ${{ needs.config.outputs.icu_sha256 }}
+      PYICU_SHA256: ${{ needs.config.outputs.pyicu_sha256 }}
+      # Honest floor for the macOS wheel tag; ICU and PyICU are both built to it.
+      MACOSX_DEPLOYMENT_TARGET: "11.0"
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - {runner: macos-14, os: macos-arm64, python: '3.9'}
-          - {runner: macos-14, os: macos-arm64, python: '3.10'}
-          - {runner: macos-14, os: macos-arm64, python: '3.11'}
-          - {runner: macos-14, os: macos-arm64, python: '3.12'}
-          - {runner: macos-14, os: macos-arm64, python: '3.13'}
-          - {runner: macos-14, os: macos-arm64, python: '3.14'}
-          - {runner: ubuntu-22.04, os: linux, python: '3.9'}
-          - {runner: ubuntu-22.04, os: linux, python: '3.10'}
-          - {runner: ubuntu-22.04, os: linux, python: '3.11'}
-          - {runner: ubuntu-22.04, os: linux, python: '3.12'}
-          - {runner: ubuntu-22.04, os: linux, python: '3.13'}
-          - {runner: ubuntu-22.04, os: linux, python: '3.14'}
+      matrix: ${{ fromJson(needs.config.outputs.matrix) }}
 
     steps:
       - uses: actions/checkout@v4
@@ -47,35 +128,39 @@ jobs:
             sudo apt-get update
             sudo apt-get install -y patchelf pkg-config build-essential unzip
           fi
-          pip install --upgrade pip setuptools wheel build delocate auditwheel
+          pip install --upgrade pip setuptools wheel build delocate auditwheel twine check-wheel-contents
+
+      - name: Download and verify ICU source
+        run: |
+          URL="https://github.com/unicode-org/icu/releases/download/release-${ICU_VERSION}/icu4c-${ICU_VERSION}-sources.tgz"
+          echo "Downloading ICU from $URL"
+          curl -L "$URL" -o icu.tgz
+          echo "${ICU_SHA256}  icu.tgz" | shasum -a 256 -c -
+          tar xzf icu.tgz
 
       - name: Build ICU from source
         run: |
-          # ICU 78+ uses release-X.Y tags and icu4c-X.Y-sources.tgz naming
-          URL="https://github.com/unicode-org/icu/releases/download/release-${{ env.ICU_VERSION }}/icu4c-${{ env.ICU_VERSION }}-sources.tgz"
-          echo "Downloading ICU from $URL"
-          curl -L "$URL" -o icu.tgz
-          tar xzf icu.tgz
-          
           cd icu/source
-          
-          # Enable static and shared, but disable samples/tests to save time
           OS_NAME=$(echo "${{ runner.os }}" | tr '[:upper:]' '[:lower:]')
           if [ "$OS_NAME" = "macos" ]; then
-            # Use headerpad_max_install_names so delocate can rewrite IDs on macOS
+            # headerpad lets delocate rewrite install names on macOS.
             export LDFLAGS="-Wl,-headerpad_max_install_names"
             ./runConfigureICU MacOSX --prefix=/tmp/icu-dist --enable-static --enable-shared --disable-samples --disable-tests
           else
             ./configure --prefix=/tmp/icu-dist --enable-static --enable-shared --disable-samples --disable-tests
           fi
-          
           make -j$(nproc 2>/dev/null || sysctl -n hw.ncpu)
           make install
-          
           echo "PKG_CONFIG_PATH=/tmp/icu-dist/lib/pkgconfig" >> $GITHUB_ENV
           echo "ICU_DIST=/tmp/icu-dist" >> $GITHUB_ENV
           echo "/tmp/icu-dist/bin" >> $GITHUB_PATH
           echo "/tmp/icu-dist/sbin" >> $GITHUB_PATH
+
+      - name: Download and verify PyICU source (hash-pinned)
+        run: |
+          echo "pyicu==${PYICU_VERSION} --hash=sha256:${PYICU_SHA256}" > /tmp/pyicu-req.txt
+          pip download -r /tmp/pyicu-req.txt --no-deps --no-binary :all: --require-hashes -d /tmp/src
+          cd /tmp/src && tar xzf ./*.tar.gz
 
       - name: Build PyICU
         env:
@@ -83,210 +168,166 @@ jobs:
           CPPFLAGS: -I/tmp/icu-dist/include
         run: |
           set -x
-          
-          # Debug: show what ICU tools will provide
-          echo "=== icu-config --ldflags ==="
-          /tmp/icu-dist/bin/icu-config --ldflags
-          
-          pip download "PyICU==${{ env.PYICU_VERSION }}" --no-deps --no-binary :all: -d /tmp/src
-          cd /tmp/src
-          tar xzf *.tar.gz
-          cd "pyicu-${{ env.PYICU_VERSION }}"
-          
-          # Let PyICU use icu-config for detection (already in PATH)
-          export ICU_VERSION="${{ env.ICU_VERSION }}"
-          
+          /tmp/icu-dist/bin/icu-config --ldflags || true
+          cd "/tmp/src/pyicu-${PYICU_VERSION}"
+          export ICU_VERSION="${ICU_VERSION}"
           if [ "${{ runner.os }}" = "macOS" ]; then
-            # macOS: explicitly set LDFLAGS since -undefined dynamic_lookup causes issues
+            # macOS: set LDFLAGS explicitly; -undefined dynamic_lookup is unwanted here.
             export LDFLAGS="-L/tmp/icu-dist/lib -licui18n -licuuc -licudata -Wl,-headerpad_max_install_names"
-            # Force single-arch build to match our ICU libs (not universal2)
             ARCH=$(uname -m)
             export ARCHFLAGS="-arch ${ARCH}"
-            export _PYTHON_HOST_PLATFORM="macosx-11.0-${ARCH}"
           fi
-          # Linux: Don't set LDFLAGS - it prepends flags in wrong order for GNU ld
-          # PyICU will use icu-config which outputs flags in correct order
-          
-          pip wheel . --no-deps -w /tmp/raw -v 2>&1 | tee /tmp/pyicu-build.log
-          
-          # Show the linker command and verify -l flags come after .o files
-          echo "=== Linker commands ==="
-          grep -E "g\+\+|clang\+\+" /tmp/pyicu-build.log | grep -E "\.so" || echo "No linker commands found"
-          
-          # Check if ICU is linked
-          echo "=== ldd on built .so ==="
-          find /tmp/raw -name "*.whl" -exec unzip -o {} "icu/*.so" -d /tmp/rawcheck \;
-          ldd /tmp/rawcheck/icu/*.so || true
+          # Linux: let PyICU's icu-config detection order the flags for GNU ld.
+          pip wheel . --no-deps -w /tmp/raw -v
 
-      - name: Bundle (macOS)
+      - name: Bundle ICU into the PyICU wheel (macOS)
         if: runner.os == 'macOS'
         run: |
           export DYLD_LIBRARY_PATH="/tmp/icu-dist/lib"
-          # Use --require-archs to match the runner architecture
           ARCH=$(uname -m)
           delocate-wheel -v --require-archs "${ARCH}" -w /tmp/bundled /tmp/raw/*.whl
-          mkdir /tmp/pkg && cd /tmp/pkg && unzip /tmp/bundled/*.whl
 
-      - name: Bundle (Linux)
+      - name: Bundle ICU into the PyICU wheel (Linux)
         if: runner.os == 'Linux'
         run: |
-          # Set LD_LIBRARY_PATH so auditwheel can find ICU libraries
           export LD_LIBRARY_PATH="/tmp/icu-dist/lib:${LD_LIBRARY_PATH:-}"
-          
-          # Show what auditwheel sees in the raw wheel
-          echo "=== auditwheel show (before repair) ==="
-          auditwheel show /tmp/raw/*.whl
-          
-          # Check external deps with ldd
-          echo "=== ldd on _icu_.so ==="
-          cd /tmp/raw && unzip -l *.whl
-          unzip -o *.whl "icu/*.so" -d /tmp/rawpkg
-          ldd /tmp/rawpkg/icu/*.so | grep -i icu || echo "No ICU deps found by ldd"
-          
-          # Use manylinux_2_35 to match ubuntu-22.04 glibc
-          auditwheel repair --plat manylinux_2_35_x86_64 -w /tmp/bundled /tmp/raw/*.whl
-          mkdir /tmp/pkg && cd /tmp/pkg && unzip /tmp/bundled/*.whl
+          auditwheel show /tmp/raw/*.whl || true
+          auditwheel repair --plat "${{ matrix.auditwheel_plat }}" -w /tmp/bundled /tmp/raw/*.whl
 
-      - name: Build wheel
+      - name: Verify macOS deployment target of bundled libraries
+        if: runner.os == 'macOS'
         run: |
-          # Instead of rebuilding with setuptools (which loses rpath),
-          # directly modify the auditwheel-repaired wheel to add icukit_pyicu
-          
+          # Every vendored dylib must require <= MACOSX_DEPLOYMENT_TARGET so the
+          # wheel's platform tag is not a lie (delocate validates this too).
+          mkdir -p /tmp/dylibcheck && cd /tmp/dylibcheck && unzip -o /tmp/bundled/*.whl >/dev/null
+          fail=0
+          for lib in $(find . -name '*.dylib' -o -name '*.so'); do
+            minos=$(vtool -show-build "$lib" 2>/dev/null | awk '/minos/{print $2; exit}')
+            echo "$lib minos=$minos"
+            if [ -n "$minos" ]; then
+              major=${minos%%.*}
+              if [ "$major" -gt 11 ]; then
+                echo "::error::$lib requires macOS $minos > 11.0"; fail=1
+              fi
+            fi
+          done
+          [ "$fail" = "0" ]
+
+      - name: Assemble final wheel
+        run: |
+          set -x
           PYVER=$(python -c "import sys; print(f'cp{sys.version_info.major}{sys.version_info.minor}')")
-          if [ "${{ runner.os }}" = "macOS" ]; then
-            PLAT="macosx_11_0_arm64"
-          else
-            PLAT="manylinux_2_35_x86_64"
-          fi
-          
-          # Get the bundled wheel from auditwheel/delocate
           BUNDLED_WHL=$(ls /tmp/bundled/*.whl)
-          echo "Working with: $BUNDLED_WHL"
-          
-          # Create working directory
-          mkdir -p /tmp/wheel-work
-          cd /tmp/wheel-work
-          unzip -q "$BUNDLED_WHL"
-          
-          # Show what auditwheel created (for debugging)
-          echo "=== Wheel contents ==="
-          find . -type f | head -20
-          
-          # Verify rpath is set correctly by auditwheel
-          if [ "${{ runner.os }}" = "Linux" ]; then
-            echo "=== Checking rpath ==="
-            readelf -d icu/*.so | grep -i runpath || echo "No RUNPATH found"
-          fi
-          
-          # Add icukit_pyicu package with ICU dev files
+
+          # Derive the full tag (pyver-abi-plat) from the delocate/auditwheel
+          # output rather than hardcoding it. This is the honest platform tag.
+          TAG=$(basename "$BUNDLED_WHL" .whl | sed -E 's/^[^-]+-[^-]+-//')
+          echo "Derived tag: $TAG"
+
+          # 1. Copy the ICU dev tree into the helper package, then build it with
+          #    setuptools so METADATA / entry_points / license files are correct.
+          rm -rf icukit_pyicu/include icukit_pyicu/lib icukit_pyicu/bin
           mkdir -p icukit_pyicu/include icukit_pyicu/lib icukit_pyicu/bin
           cp -R /tmp/icu-dist/include/* icukit_pyicu/include/
-          cp -R /tmp/icu-dist/lib/* icukit_pyicu/lib/
-          cp -R /tmp/icu-dist/bin/* icukit_pyicu/bin/
-          
-          # Copy icukit_pyicu Python files from repo
-          cp $GITHUB_WORKSPACE/icukit_pyicu/__init__.py icukit_pyicu/
-          cp $GITHUB_WORKSPACE/icukit_pyicu/__main__.py icukit_pyicu/
-          
-          # Update the dist-info to reflect our package name
-          OLD_DIST=$(ls -d *.dist-info)
-          NEW_DIST="icukit_pyicu-78.2.1.dist-info"
-          mv "$OLD_DIST" "$NEW_DIST"
-          
-          # Update METADATA
-          cat > "$NEW_DIST/METADATA" << 'EOF'
-          Metadata-Version: 2.1
-          Name: icukit-pyicu
-          Version: 78.2.1
-          Summary: Bundled ICU and PyICU for pip
-          Author: Kevin A. Lenzo
-          Author-email: keinlenzo@gmail.com
-          License: MIT
-          Project-URL: Homepage, https://github.com/lenzo-ka/icukit-pyicu
-          Keywords: icu,unicode,i18n,pyicu
-          Classifier: Development Status :: 5 - Production/Stable
-          Classifier: Intended Audience :: Developers
-          Classifier: License :: OSI Approved :: MIT License
-          Classifier: Operating System :: MacOS
-          Classifier: Operating System :: POSIX :: Linux
-          Classifier: Programming Language :: Python :: 3
-          Requires-Python: >=3.9
-          Description-Content-Type: text/markdown
-          
-          # icukit-pyicu
-          
-          Bundled ICU and PyICU for easy pip installation.
-          EOF
-          # Remove leading spaces from heredoc (use temp file for portability)
-          sed 's/^          //' "$NEW_DIST/METADATA" > "$NEW_DIST/METADATA.tmp" && mv "$NEW_DIST/METADATA.tmp" "$NEW_DIST/METADATA"
-          
-          # Update WHEEL file
-          cat > "$NEW_DIST/WHEEL" << EOF
-          Wheel-Version: 1.0
-          Generator: icukit-pyicu-build
-          Root-Is-Purelib: false
-          Tag: ${PYVER}-${PYVER}-${PLAT}
-          EOF
-          
-          # Update top_level.txt
-          echo -e "icu\nicukit_pyicu" > "$NEW_DIST/top_level.txt"
-          
-          # Add entry_points.txt for CLI
-          cat > "$NEW_DIST/entry_points.txt" << 'EOF'
-          [console_scripts]
-          icukit-config = icukit_pyicu.__main__:main
-          EOF
-          
-          # Regenerate RECORD (list of files with hashes)
-          python3 << 'PYTHON'
-          import hashlib
-          import base64
-          import os
-          
-          def file_hash(path):
-              with open(path, 'rb') as f:
-                  digest = hashlib.sha256(f.read()).digest()
-              return 'sha256=' + base64.urlsafe_b64encode(digest).rstrip(b'=').decode()
-          
-          def file_size(path):
-              return os.path.getsize(path)
-          
-          records = []
-          for root, dirs, files in os.walk('.'):
-              for f in files:
-                  path = os.path.join(root, f)[2:]  # Remove ./
-                  if path.endswith('RECORD'):
-                      records.append(f'{path},,')
-                  else:
-                      records.append(f'{path},{file_hash(path)},{file_size(path)}')
-          
-          # Find the dist-info directory
-          dist_info = [d for d in os.listdir('.') if d.endswith('.dist-info')][0]
-          with open(f'{dist_info}/RECORD', 'w') as f:
-              f.write('\n'.join(sorted(records)) + '\n')
-          PYTHON
-          
-          # Create the final wheel
-          mkdir -p $GITHUB_WORKSPACE/dist
-          WHEEL_NAME="icukit_pyicu-78.2.1-${PYVER}-${PYVER}-${PLAT}.whl"
-          zip -rq "$GITHUB_WORKSPACE/dist/$WHEEL_NAME" .
-          
-          echo "Created: $WHEEL_NAME"
-          ls -la $GITHUB_WORKSPACE/dist/
+          cp -R /tmp/icu-dist/lib/*     icukit_pyicu/lib/
+          cp -R /tmp/icu-dist/bin/*     icukit_pyicu/bin/
+          # Drop static archives: consumers link the shared libs; .a doubles size.
+          find icukit_pyicu/lib -name '*.a' -delete
+
+          rm -rf dist build
+          python -m build --wheel
+          HELPER_WHL=$(ls dist/*.whl)
+
+          # 2. Unpack both wheels into one tree (wheel pack/unpack need existing dirs).
+          rm -rf /tmp/work /tmp/pyicu-unpack
+          mkdir -p /tmp/work /tmp/pyicu-unpack
+          python -m wheel unpack "$HELPER_WHL" -d /tmp/work
+          WORK=$(ls -d /tmp/work/*/)
+          python -m wheel unpack "$BUNDLED_WHL" -d /tmp/pyicu-unpack
+          PYICU_DIR=$(ls -d /tmp/pyicu-unpack/*/)
+
+          # Graft the ICU runtime module and its vendored libraries.
+          cp -R "${PYICU_DIR}icu" "$WORK"
+          for libs in "${PYICU_DIR}"*.libs; do
+            [ -d "$libs" ] && cp -R "$libs" "$WORK"
+          done
+
+          # 3. Fix the WHEEL tags (platform wheel, not purelib) and repack.
+          python - "$WORK" "$TAG" <<'PY'
+          import sys, pathlib
+          work, tag = pathlib.Path(sys.argv[1]), sys.argv[2]
+          wheel = next(work.glob("*.dist-info/WHEEL"))
+          out, saw_tag = [], False
+          for line in wheel.read_text().splitlines():
+              if line.startswith("Root-Is-Purelib:"):
+                  line = "Root-Is-Purelib: false"
+              if line.startswith("Tag:"):
+                  if saw_tag:
+                      continue
+                  line, saw_tag = f"Tag: {tag}", True
+              out.append(line)
+          wheel.write_text("\n".join(out) + "\n")
+          PY
+
+          mkdir -p "$GITHUB_WORKSPACE/dist-final"
+          python -m wheel pack "$WORK" -d "$GITHUB_WORKSPACE/dist-final"
+          ls -la "$GITHUB_WORKSPACE/dist-final"
+
+      - name: Report wheel size
+        run: |
+          WHL=$(ls "$GITHUB_WORKSPACE"/dist-final/*.whl)
+          echo "Compressed wheel: $(du -h "$WHL" | cut -f1)"
+          rm -rf /tmp/sz && mkdir -p /tmp/sz && (cd /tmp/sz && unzip -q "$WHL")
+          echo "Uncompressed breakdown:"
+          du -sh /tmp/sz/icu /tmp/sz/icukit_pyicu 2>/dev/null || true
+          du -sh /tmp/sz/icukit_pyicu/lib /tmp/sz/icukit_pyicu/bin /tmp/sz/icukit_pyicu/include 2>/dev/null || true
+
+      - name: Validate wheel
+        run: |
+          # twine check is the hard gate on metadata. check-wheel-contents is
+          # advisory here: it flags the vendored ICU libs / auditwheel *.libs dir,
+          # which are expected for this package.
+          twine check "$GITHUB_WORKSPACE"/dist-final/*.whl
+          check-wheel-contents "$GITHUB_WORKSPACE"/dist-final/*.whl || true
 
       - name: Test
         run: |
-          pip install dist/*.whl
-          rm -rf icu
-          
-          # No LD_LIBRARY_PATH needed - rpath is preserved from auditwheel
+          pip install "$GITHUB_WORKSPACE"/dist-final/*.whl
+          rm -rf icu icukit_pyicu   # ensure we import the installed package
           pip install pytest
           python -m pytest tests/ -v
+
+      - name: Smoke test dev linkage (compile and run against bundled ICU)
+        run: |
+          cat > /tmp/icutest.cpp <<'EOF'
+          #include <unicode/uversion.h>
+          #include <cstdio>
+          int main() {
+            UVersionInfo v; u_getVersion(v);
+            printf("%d.%d\n", v[0], v[1]);
+            return 0;
+          }
+          EOF
+          LIB=$(python -c 'import icukit_pyicu; print(icukit_pyicu.get_lib())')
+          CFLAGS=$(icukit-config --cflags)
+          LIBS=$(icukit-config --libs)
+          if [ "${{ runner.os }}" = "macOS" ]; then
+            RPATH="-Wl,-rpath,${LIB}"
+          else
+            RPATH="-Wl,-rpath,${LIB}"
+          fi
+          c++ -std=c++17 $CFLAGS /tmp/icutest.cpp $LIBS $RPATH -o /tmp/icutest
+          OUT=$(/tmp/icutest)
+          echo "Program reported ICU version: $OUT"
+          case "$ICU_VERSION" in
+            "$OUT"*) echo "matches ICU_VERSION prefix";;
+            *) echo "::error::dev-linkage program reported $OUT, expected prefix $ICU_VERSION"; exit 1;;
+          esac
 
       - uses: actions/upload-artifact@v4
         with:
           name: wheel-${{ matrix.os }}-py${{ matrix.python }}
-          path: dist/*.whl
+          path: dist-final/*.whl
 
   publish:
     needs: build

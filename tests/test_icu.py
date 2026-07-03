@@ -1,13 +1,26 @@
 """Basic tests for icukit-pyicu to verify ICU functionality."""
 
+import os
+
 import icu
 
 
 def test_version():
-    """Verify ICU version."""
-    assert icu.ICU_VERSION.startswith("78.")
-    # PyICU version is available as icu.VERSION (tuple) not PYICU_VERSION
+    """Verify ICU version.
+
+    When the build sets ICU_VERSION (as CI does), assert the loaded ICU matches
+    it exactly; otherwise just assert a sane, non-empty version is present so the
+    test does not hardcode an ICU major that breaks on the next upstream bump.
+    """
     assert hasattr(icu, "ICU_VERSION")
+    assert icu.ICU_VERSION  # non-empty, e.g. "78.3"
+
+    expected = os.environ.get("ICU_VERSION")
+    if expected:
+        # ICU_VERSION may be "78.3" while icu.ICU_VERSION is "78.3.0"; match the
+        # major.minor prefix.
+        major_minor = ".".join(expected.split(".")[:2])
+        assert icu.ICU_VERSION.startswith(major_minor)
 
 
 def test_locale():
