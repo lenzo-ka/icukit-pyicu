@@ -14,6 +14,11 @@ name: Build
 
 on:
   workflow_dispatch:
+    inputs:
+      full:
+        description: "Run the full wheel matrix (all OS/Python). Off = 2-wheel smoke."
+        type: boolean
+        default: false
   push:
     branches: [main]
     tags: ['v*']
@@ -94,10 +99,19 @@ jobs:
             {"runner":"macos-14","os":"macos-arm64","python":"3.12","auditwheel_plat":""},
             {"runner":"ubuntu-22.04","os":"linux-x86_64","python":"3.12","auditwheel_plat":"manylinux_2_35_x86_64"}
           ]}'
-          if [ "${{ github.event_name }}" = "push" ] && [ "${{ github.ref_type }}" != "tag" ]; then
-            echo "matrix=$(echo "$SMOKE" | tr -d '\n ')" >> "$GITHUB_OUTPUT"
-          else
+          # Full matrix only for releases, tag pushes, or an explicit dispatch
+          # request; everything else (branch push, plain dispatch) runs the
+          # cheap 2-wheel smoke matrix.
+          FULL_RUN=false
+          case "${{ github.event_name }}" in
+            release) FULL_RUN=true ;;
+            push) [ "${{ github.ref_type }}" = "tag" ] && FULL_RUN=true ;;
+            workflow_dispatch) [ "${{ inputs.full }}" = "true" ] && FULL_RUN=true ;;
+          esac
+          if [ "$FULL_RUN" = "true" ]; then
             echo "matrix=$(echo "$FULL" | tr -d '\n ')" >> "$GITHUB_OUTPUT"
+          else
+            echo "matrix=$(echo "$SMOKE" | tr -d '\n ')" >> "$GITHUB_OUTPUT"
           fi
 
   build:
@@ -143,8 +157,13 @@ jobs:
           cd icu/source
           OS_NAME=$(echo "${{ runner.os }}" | tr '[:upper:]' '[:lower:]')
           if [ "$OS_NAME" = "macos" ]; then
-            # headerpad lets delocate rewrite install names on macOS.
-            export LDFLAGS="-Wl,-headerpad_max_install_names"
+            # Force the deployment-target floor explicitly: ICU's configure can
+            # otherwise pin the build to the host SDK version, which makes the
+            # vendored dylibs require a newer macOS than the wheel tag claims and
+            # delocate then rejects them. headerpad lets delocate rewrite IDs.
+            export CFLAGS="-mmacosx-version-min=${MACOSX_DEPLOYMENT_TARGET}"
+            export CXXFLAGS="-mmacosx-version-min=${MACOSX_DEPLOYMENT_TARGET}"
+            export LDFLAGS="-mmacosx-version-min=${MACOSX_DEPLOYMENT_TARGET} -Wl,-headerpad_max_install_names"
             ./runConfigureICU MacOSX --prefix=/tmp/icu-dist --enable-static --enable-shared --disable-samples --disable-tests
           else
             ./configure --prefix=/tmp/icu-dist --enable-static --enable-shared --disable-samples --disable-tests
@@ -172,8 +191,10 @@ jobs:
           cd "/tmp/src/pyicu-${PYICU_VERSION}"
           export ICU_VERSION="${ICU_VERSION}"
           if [ "${{ runner.os }}" = "macOS" ]; then
-            # macOS: set LDFLAGS explicitly; -undefined dynamic_lookup is unwanted here.
-            export LDFLAGS="-L/tmp/icu-dist/lib -licui18n -licuuc -licudata -Wl,-headerpad_max_install_names"
+            # macOS: set flags explicitly; -undefined dynamic_lookup is unwanted
+            # here, and the extension must target the same floor as the ICU libs.
+            export CXXFLAGS="-std=c++17 -mmacosx-version-min=${MACOSX_DEPLOYMENT_TARGET}"
+            export LDFLAGS="-L/tmp/icu-dist/lib -licui18n -licuuc -licudata -mmacosx-version-min=${MACOSX_DEPLOYMENT_TARGET} -Wl,-headerpad_max_install_names"
             ARCH=$(uname -m)
             export ARCHFLAGS="-arch ${ARCH}"
           fi
@@ -185,6 +206,17 @@ jobs:
         run: |
           export DYLD_LIBRARY_PATH="/tmp/icu-dist/lib"
           ARCH=$(uname -m)
+          # Diagnostics: raw wheel tag + minimum-OS of the libraries delocate will
+          # graft. These must all agree at MACOSX_DEPLOYMENT_TARGET or delocate
+          # aborts. Printed before the repair so a failure is self-explaining.
+          echo "raw wheel: $(ls /tmp/raw/)"
+          for l in /tmp/icu-dist/lib/libicu*.dylib; do
+            echo "  $(basename "$l"): minos=$(vtool -show-build "$l" 2>/dev/null | awk '/minos/{print $2}')"
+          done
+          mkdir -p /tmp/extchk && (cd /tmp/extchk && unzip -o /tmp/raw/*.whl >/dev/null)
+          for so in $(find /tmp/extchk -name '*.so'); do
+            echo "  $(basename "$so"): minos=$(vtool -show-build "$so" 2>/dev/null | awk '/minos/{print $2}')"
+          done
           delocate-wheel -v --require-archs "${ARCH}" -w /tmp/bundled /tmp/raw/*.whl
 
       - name: Bundle ICU into the PyICU wheel (Linux)
@@ -308,20 +340,27 @@ jobs:
             return 0;
           }
           EOF
+          set -x
           LIB=$(python -c 'import icukit_pyicu; print(icukit_pyicu.get_lib())')
           CFLAGS=$(icukit-config --cflags)
           LIBS=$(icukit-config --libs)
+          ls -l "$LIB" | head -40
           if [ "${{ runner.os }}" = "macOS" ]; then
             RPATH="-Wl,-rpath,${LIB}"
           else
-            RPATH="-Wl,-rpath,${LIB}"
+            # GNU ld emits DT_RUNPATH by default, which is NOT applied to a
+            # library's own transitive dependencies (libicui18n -> libicuuc ->
+            # libicudata). --disable-new-dtags forces DT_RPATH, which is, so the
+            # program can resolve the whole ICU chain from the bundled lib dir.
+            RPATH="-Wl,-rpath,${LIB} -Wl,--disable-new-dtags"
           fi
           c++ -std=c++17 $CFLAGS /tmp/icutest.cpp $LIBS $RPATH -o /tmp/icutest
+          if [ "${{ runner.os }}" = "macOS" ]; then otool -L /tmp/icutest || true; else ldd /tmp/icutest || true; fi
           OUT=$(/tmp/icutest)
           echo "Program reported ICU version: $OUT"
-          case "$ICU_VERSION" in
-            "$OUT"*) echo "matches ICU_VERSION prefix";;
-            *) echo "::error::dev-linkage program reported $OUT, expected prefix $ICU_VERSION"; exit 1;;
+          case "$OUT" in
+            "${ICU_VERSION}"*) echo "matches ICU_VERSION prefix";;
+            *) echo "::error::dev-linkage program reported '$OUT', expected prefix ${ICU_VERSION}"; exit 1;;
           esac
 
       - uses: actions/upload-artifact@v4
