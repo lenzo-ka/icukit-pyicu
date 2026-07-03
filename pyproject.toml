@@ -12,7 +12,7 @@ description = "Bundled ICU and PyICU for pip"
 readme = "README.md"
 license = "MIT AND Unicode-3.0"
 license-files = ["LICENSE", "LICENSE-ICU"]
-authors = [{name = "Kevin A. Lenzo", email = "keinlenzo@gmail.com"}]
+authors = [{name = "Kevin A. Lenzo", email = "kevinlenzo@gmail.com"}]
 requires-python = ">=3.9"
 keywords = ["icu", "unicode", "i18n", "pyicu"]
 classifiers = [
