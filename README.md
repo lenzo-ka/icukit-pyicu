@@ -45,9 +45,17 @@ icukit-config --libs      # -L<libdir> -licui18n -licuuc -licudata
 For example, to compile and link a C++ program against the bundled ICU:
 
 ```bash
-c++ -std=c++17 $(icukit-config --cflags) prog.cpp $(icukit-config --libs) \
-    -Wl,-rpath,"$(python -c 'import icukit_pyicu;print(icukit_pyicu.get_lib())')"
+LIBDIR=$(python -c 'import icukit_pyicu; print(icukit_pyicu.get_lib())')
+c++ -std=c++17 $(icukit-config --cflags) prog.cpp $(icukit-config --libs) -o prog
 ```
+
+The program then needs to find the ICU libraries at run time:
+
+- **Linux:** link with `-Wl,-rpath,"$LIBDIR" -Wl,--disable-new-dtags` (the
+  `--disable-new-dtags` makes the rpath apply to ICU's own inter-library
+  dependencies), or set `LD_LIBRARY_PATH="$LIBDIR"`.
+- **macOS:** the bundled dylibs use bare install names, so set
+  `DYLD_LIBRARY_PATH="$LIBDIR"` when running.
 
 ## Platforms
 

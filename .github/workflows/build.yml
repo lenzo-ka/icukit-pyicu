@@ -360,8 +360,16 @@ jobs:
             RPATH="-Wl,-rpath,${LIB} -Wl,--disable-new-dtags"
           fi
           c++ -std=c++17 $CFLAGS /tmp/icutest.cpp $LIBS $RPATH -o /tmp/icutest
-          if [ "${{ runner.os }}" = "macOS" ]; then otool -L /tmp/icutest || true; else ldd /tmp/icutest || true; fi
-          OUT=$(/tmp/icutest)
+          if [ "${{ runner.os }}" = "macOS" ]; then
+            otool -L /tmp/icutest || true
+            # ICU's macOS dylibs carry bare (non-@rpath) install names, so an
+            # -rpath link is not enough; the library dir must be on
+            # DYLD_LIBRARY_PATH when the program runs.
+            OUT=$(DYLD_LIBRARY_PATH="${LIB}" /tmp/icutest)
+          else
+            ldd /tmp/icutest || true
+            OUT=$(/tmp/icutest)
+          fi
           echo "Program reported ICU version: $OUT"
           case "$OUT" in
             "${ICU_VERSION}"*) echo "matches ICU_VERSION prefix";;
