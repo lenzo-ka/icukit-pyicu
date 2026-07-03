@@ -91,10 +91,12 @@ approach uses only standard tools:
 
 ## Matrix and triggers
 
-- Push to `main`: a 2-entry **smoke** matrix (one macOS, one Linux) to catch
-  breakage cheaply.
-- Tags (`v*`), releases, and manual `workflow_dispatch`: the **full** matrix
-  (macOS arm64 + Linux x86_64/aarch64 × Python 3.9–3.14).
+- Push to `main`, tag pushes (`v*`), and releases: the **full** matrix
+  (macOS arm64 + Linux x86_64/aarch64 × Python 3.9–3.14) — `main` is always
+  fully validated.
+- Push to a feature branch, or a plain `workflow_dispatch`: a 2-entry **smoke**
+  matrix (one macOS, one Linux) to catch breakage cheaply. Dispatch with
+  `full=true` to force the full matrix.
 - Publishing to PyPI (trusted publishing / OIDC) happens **only** on `release`
   events.
 

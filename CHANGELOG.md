@@ -51,6 +51,7 @@ ICU 78.3 includes CLDR 48.2 fixes and time-zone data 2026a.
 
 ### CI hygiene
 
-- Pushes to `main` run a 2-wheel smoke matrix; the full matrix runs on tags,
-  releases, and manual dispatch. Added a `concurrency` group so superseded runs
-  are cancelled.
+- Pushes to `main`, tags, and releases build the full wheel matrix; feature
+  branches and plain manual dispatches run a cheap 2-wheel smoke matrix (a
+  `workflow_dispatch` `full=true` forces the full matrix). Added a `concurrency`
+  group so superseded runs are cancelled.
