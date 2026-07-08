@@ -10,7 +10,7 @@ name = "icukit-pyicu"
 version = "78.3.0"
 description = "Bundled ICU and PyICU for pip"
 readme = "README.md"
-license = "MIT AND Unicode-3.0"
+license = "BSD-2-Clause AND Unicode-3.0"
 license-files = ["LICENSE", "LICENSE-ICU"]
 authors = [{name = "Kevin A. Lenzo", email = "kevinlenzo@gmail.com"}]
 requires-python = ">=3.9"

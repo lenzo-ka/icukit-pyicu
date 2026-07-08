@@ -90,9 +90,9 @@ pip install icukit-pyicu
 
 ## License
 
-The `icukit_pyicu` helper code is MIT (see `LICENSE`).
+The `icukit_pyicu` helper code is BSD 2-Clause (see `LICENSE`).
 
 The published wheels bundle binary distributions of **ICU** (Unicode-3.0
 license, see `LICENSE-ICU`) and **PyICU** (MIT). Accordingly the wheel metadata
-declares the SPDX expression `MIT AND Unicode-3.0`, and both license files are
+declares the SPDX expression `BSD-2-Clause AND Unicode-3.0`, and both license files are
 included in the distribution.

@@ -78,7 +78,7 @@ approach uses only standard tools:
    double the size).
 2. `python -m build --wheel` produces `icukit_pyicu-<ver>-py3-none-any.whl` with
    correct, complete metadata generated from `pyproject.toml` (long description
-   from the README, entry points, `MIT AND Unicode-3.0`, both license files).
+   from the README, entry points, `BSD-2-Clause AND Unicode-3.0`, both license files).
 3. `wheel unpack` both that wheel and the delocate/auditwheel-repaired PyICU
    wheel, then copy the PyICU wheel's `icu/` package and its `*.libs` directory
    into the helper tree. Only the helper's `dist-info` is kept, so no leftover
