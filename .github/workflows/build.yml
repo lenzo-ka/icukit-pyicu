@@ -185,6 +185,11 @@ jobs:
           pip download -r /tmp/pyicu-req.txt --no-deps --no-binary :all: --require-hashes -d /tmp/src
           cd /tmp/src && tar xzf ./*.tar.gz
 
+      - name: Apply PyICU fixes
+        run: |
+          cd "/tmp/src/pyicu-${PYICU_VERSION}"
+          patch -p1 < "$GITHUB_WORKSPACE/patches/icuerror-null-message.patch"
+
       - name: Build PyICU
         env:
           CXXFLAGS: -std=c++17

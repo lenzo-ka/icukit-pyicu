@@ -7,7 +7,7 @@ name = "icukit-pyicu"
 # Version tracks the bundled ICU release: <ICU major>.<ICU minor>.<package revision>.
 # The ICU/PyICU pins this version corresponds to live in [tool.icukit-pyicu]
 # below; CI reads both the version and the pins from this file.
-version = "78.3.0"
+version = "78.3.1"
 description = "Bundled ICU and PyICU for pip"
 readme = "README.md"
 license = "BSD-2-Clause AND Unicode-3.0"
