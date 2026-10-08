@@ -144,9 +144,14 @@ jobs:
         run: |
           if [ "${{ runner.os }}" = "Linux" ]; then
             sudo apt-get update
-            sudo apt-get install -y patchelf pkg-config build-essential unzip
+            sudo apt-get install -y pkg-config build-essential unzip
           fi
           pip install --upgrade pip setuptools wheel build delocate auditwheel twine check-wheel-contents
+          if [ "${{ runner.os }}" = "Linux" ]; then
+            # auditwheel needs patchelf >= 0.14.5; Ubuntu 22.04's apt package is 0.14.3.
+            pip install --upgrade patchelf
+            patchelf --version
+          fi
 
       - name: Download and verify ICU source
         run: |
