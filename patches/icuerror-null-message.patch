@@ -1,0 +1,93 @@
+diff --git a/common.cpp b/common.cpp
+index e12cd7e..d5a0b79 100644
+--- a/common.cpp
++++ b/common.cpp
+@@ -124,21 +124,58 @@ EXPORT ICUException::ICUException(UErrorCode status, char *format, ...)
+ 
+ EXPORT ICUException::ICUException(UParseError &pe, UErrorCode status)
+ {
+-    PyObject *messages = PyObject_GetAttrString(PyExc_ICUError, "messages");
+     UnicodeString pre((const UChar *) pe.preContext, U_PARSE_CONTEXT_LEN);
+     UnicodeString post((const UChar *) pe.postContext, U_PARSE_CONTEXT_LEN);
+-    PyObject *tuple = PyTuple_New(5);
+-
++    PyObject *messages = PyObject_GetAttrString(PyExc_ICUError, "messages");
+     ICUException::code = PyInt_FromLong((long) status);
+-
+-    PyTuple_SET_ITEM(tuple, 0, PyObject_GetItem(messages, code));
+-    PyTuple_SET_ITEM(tuple, 1, PyInt_FromLong(pe.line));
+-    PyTuple_SET_ITEM(tuple, 2, PyInt_FromLong(pe.offset));
+-    PyTuple_SET_ITEM(tuple, 3, PyUnicode_FromUnicodeString(&pre));
+-    PyTuple_SET_ITEM(tuple, 4, PyUnicode_FromUnicodeString(&post));
+-    ICUException::msg = tuple;
+-
+-    Py_DECREF(messages);
++    ICUException::msg = NULL;
++
++    if (!messages || !code)
++    {
++        Py_XDECREF(messages);
++        Py_CLEAR(ICUException::code);
++        return;
++    }
++
++    PyObject *message = PyObject_GetItem(messages, code);
++    if (!message)
++    {
++        // The table can lag new ICU error codes. Never put the resulting NULL
++        // into a tuple: Python 3.14's tuple formatter dereferences it.
++        if (!PyErr_ExceptionMatches(PyExc_KeyError))
++        {
++            Py_DECREF(messages);
++            Py_CLEAR(ICUException::code);
++            return;
++        }
++        PyErr_Clear();
++        message = PyString_FromString(u_errorName(status));
++    }
++    if (!message)
++    {
++        Py_DECREF(messages);
++        Py_CLEAR(ICUException::code);
++        return;
++    }
++
++    PyObject *line = PyInt_FromLong(pe.line);
++    PyObject *offset = PyInt_FromLong(pe.offset);
++    PyObject *preContext = PyUnicode_FromUnicodeString(&pre);
++    PyObject *postContext = PyUnicode_FromUnicodeString(&post);
++
++    if (message && line && offset && preContext && postContext)
++        ICUException::msg = PyTuple_Pack(5, message, line, offset,
++                                         preContext, postContext);
++
++    Py_XDECREF(messages);
++    Py_XDECREF(message);
++    Py_XDECREF(line);
++    Py_XDECREF(offset);
++    Py_XDECREF(preContext);
++    Py_XDECREF(postContext);
++
++    if (!ICUException::msg)
++        Py_CLEAR(ICUException::code);
+ }
+ 
+ EXPORT ICUException::~ICUException()
+diff --git a/errors.cpp b/errors.cpp
+index f882a94..99f47aa 100644
+--- a/errors.cpp
++++ b/errors.cpp
+@@ -160,5 +160,13 @@ static void registerErrors(PyObject *messages)
+     _setMsg(messages, U_REGEX_INVALID_FLAG, "Invalid value for match mode flags.");
+     _setMsg(messages, U_REGEX_LOOK_BEHIND_LIMIT, "Look-Behind pattern matches must have a bounded maximum length.");
+     _setMsg(messages, U_REGEX_SET_CONTAINS_STRING, "Regexps cannot have UnicodeSets containing strings.");
++    _setMsg(messages, U_REGEX_MISSING_CLOSE_BRACKET, "Missing closing bracket on a bracket expression.");
++    _setMsg(messages, U_REGEX_INVALID_RANGE, "In a character range [x-y], x is greater than y.");
++    _setMsg(messages, U_REGEX_STACK_OVERFLOW, "Regular expression backtrack stack overflow.");
++    _setMsg(messages, U_REGEX_TIME_OUT, "Maximum allowed match time exceeded.");
++    _setMsg(messages, U_REGEX_STOPPED_BY_CALLER, "Matching operation aborted by user callback.");
++    _setMsg(messages, U_REGEX_PATTERN_TOO_BIG, "Pattern exceeds limits on size or complexity.");
++    _setMsg(messages, U_REGEX_INVALID_CAPTURE_GROUP_NAME, "Invalid capture group name.");
++
+ #if U_ICU_VERSION_HEX >= 0x04080000
+     _setMsg(messages, U_FORMAT_INEXACT_ERROR, "Cannot format a number exactly and rounding mode is ROUND_UNNECESSARY");

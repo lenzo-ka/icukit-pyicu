@@ -52,9 +52,11 @@ curl -s https://pypi.org/pypi/PyICU/<VER>/json \
    passed so delocate can rewrite install names, and `MACOSX_DEPLOYMENT_TARGET`
    is set so the binaries' minimum-OS matches the wheel tag.
 3. **Download + verify PyICU** with `pip download --require-hashes`.
-4. **Build PyICU** against the just-built ICU (`-std=c++17`, ICU on the include
-   and library paths). This yields a raw `pyicu-*.whl` whose `icu/*.so` links
-   against the ICU libs in `/tmp/icu-dist`.
+4. **Patch and build PyICU** against the just-built ICU (`-std=c++17`, ICU on
+   the include and library paths). Repository-owned patches under `patches/`
+   are applied to the verified upstream source before compilation. This yields
+   a raw `pyicu-*.whl` whose `icu/*.so` links against the ICU libs in
+   `/tmp/icu-dist`.
 5. **Vendor the ICU runtime** into the wheel: `delocate-wheel` (macOS) or
    `auditwheel repair` (Linux) copies the ICU shared libraries into the wheel
    and rewrites the extension's load paths to find them relatively.

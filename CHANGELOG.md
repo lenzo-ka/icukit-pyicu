@@ -3,6 +3,16 @@
 All notable changes to this project are documented here. Versions track the
 bundled ICU release: `<ICU major>.<ICU minor>.<package revision>`.
 
+## 78.3.1 (2026-10-08)
+
+### PyICU fixes
+
+- Patch PyICU's parse-error construction to fall back to ICU's symbolic error
+  name when its message table lacks a status code. Previously the constructor
+  inserted `NULL` into an exception tuple; formatting an unmatched-bracket
+  error then segfaulted on Python 3.14.
+- Register the regex error codes missing from PyICU 2.16.2's message table.
+
 ## 78.3.0 (2026-07-03)
 
 Bundles **ICU 78.3** and **PyICU 2.16.2** (previously ICU 78.2 / PyICU 2.16).

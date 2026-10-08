@@ -104,6 +104,32 @@ def test_charset_detection():
     assert match is not None
 
 
+def test_unknown_parse_error_message_is_safe():
+    """An absent status message must not create a tuple containing NULL."""
+    import pytest
+
+    pattern = "[invalid"
+
+    with pytest.raises(icu.ICUError) as caught:
+        icu.RegexPattern.compile(pattern)
+
+    error = caught.value
+    status = error.getErrorCode()
+    assert error.args[1][0] == "Missing closing bracket on a bracket expression."
+    assert "error code" in str(error)
+
+    registered_message = icu.ICUError.messages.pop(status)
+    try:
+        with pytest.raises(icu.ICUError) as fallback_caught:
+            icu.RegexPattern.compile(pattern)
+
+        fallback = fallback_caught.value
+        assert fallback.args[1][0] == "U_REGEX_MISSING_CLOSE_BRACKET"
+        assert "error code" in str(fallback)
+    finally:
+        icu.ICUError.messages[status] = registered_message
+
+
 if __name__ == "__main__":
     # Run tests manually
     test_version()
