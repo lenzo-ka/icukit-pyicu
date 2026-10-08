@@ -3,7 +3,6 @@
 import os
 
 import icu
-import pytest
 
 
 def test_version():
@@ -107,6 +106,8 @@ def test_charset_detection():
 
 def test_unknown_parse_error_message_is_safe():
     """An absent status message must not create a tuple containing NULL."""
+    import pytest
+
     pattern = "[invalid"
 
     with pytest.raises(icu.ICUError) as caught:
