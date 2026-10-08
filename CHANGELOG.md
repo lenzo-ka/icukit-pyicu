@@ -5,6 +5,12 @@ bundled ICU release: `<ICU major>.<ICU minor>.<package revision>`.
 
 ## 78.3.1 (2026-10-08)
 
+### Licensing
+
+- Ship PyICU's own MIT license as `LICENSE-PyICU` and declare
+  `BSD-2-Clause AND MIT AND Unicode-3.0`. The wheels bundle PyICU, whose notice
+  was not included before.
+
 ### PyICU fixes
 
 - Patch PyICU's parse-error construction to fall back to ICU's symbolic error
